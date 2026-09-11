@@ -3,7 +3,6 @@ pub mod db;
 pub mod security;
 
 use tauri::{Manager, WebviewWindow};
-use window_vibrancy::{apply_acrylic, apply_mica};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -18,19 +17,26 @@ pub fn run() {
         .setup(|app| {
             let window: WebviewWindow = app.get_webview_window("main").unwrap();
 
-            // On Windows 10/11, apply native Acrylic / Mica backdrop blur
+            // Native Acrylic provides the real cross-window blur on Windows.
+            // Keep the tint neutral and low-alpha; the React layer adds only a
+            // subtle frosted surface above it.
             #[cfg(target_os = "windows")]
             {
-                use window_vibrancy::apply_acrylic;
-                // Tint color: subtle dark translucent navy
-                let _ = apply_acrylic(&window, Some((16, 20, 28, 180)));
+                use window_vibrancy::{apply_acrylic, apply_blur};
+                if apply_acrylic(&window, Some((28, 31, 34, 82))).is_err() {
+                    let _ = apply_blur(&window, Some((28, 31, 34, 70)));
+                }
             }
 
-            // On macOS, apply vibrant liquid glass blur
             #[cfg(target_os = "macos")]
             {
                 use window_vibrancy::{apply_vibrancy, NSVisualEffectMaterial};
-                let _ = apply_vibrancy(&window, NSVisualEffectMaterial::HudWindow, None, None);
+                let _ = apply_vibrancy(
+                    &window,
+                    NSVisualEffectMaterial::HudWindow,
+                    None,
+                    None,
+                );
             }
 
             Ok(())
