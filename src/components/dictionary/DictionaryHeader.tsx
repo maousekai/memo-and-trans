@@ -1,31 +1,36 @@
-import React from "react";
+import React, { useMemo } from "react";
 import { Pin, X } from "lucide-react";
 import { GlassSearch } from "../glass/GlassSearch";
 import { GlassButton } from "../glass/GlassButton";
 import { store, useAppStore } from "../../store/useAppStore";
+import { wordSuggestionService } from "../../services/search/wordSuggestionService";
 
 export const DictionaryHeader: React.FC = () => {
   const searchQuery = useAppStore((s) => s.searchQuery);
   const isLoading = useAppStore((s) => s.isLoading);
   const isPinned = useAppStore((s) => s.isPinned);
+  const savedWords = useAppStore((s) => s.savedWords);
+
+  const suggestions = useMemo(
+    () => wordSuggestionService.suggest(searchQuery, savedWords, 5),
+    [searchQuery, savedWords],
+  );
 
   const handleSearch = (word: string) => {
     store.searchWord(word);
   };
 
   return (
-    <div className="flex flex-col gap-2.5 pb-2.5 border-b border-white/[0.08]">
-      {/* Top window controls row: clean, uncrowded */}
+    <div className="relative z-30 flex flex-col gap-2.5 pb-2.5 border-b border-white/[0.07]">
       <div className="flex items-center justify-between text-xs">
         <div className="flex items-center gap-2 select-none">
-          <span className="w-2 h-2 rounded-full bg-cyan-400 shadow-[0_0_8px_rgba(6,182,212,0.8)]" />
+          <span className="w-2 h-2 rounded-full bg-white/70 border border-white/25" />
           <span className="text-sm font-bold tracking-tight text-white font-['Plus_Jakarta_Sans']">
             LexiGlass
           </span>
         </div>
 
         <div className="flex items-center gap-1">
-          {/* Always-on-top Pin */}
           <GlassButton
             variant="icon"
             size="sm"
@@ -33,10 +38,9 @@ export const DictionaryHeader: React.FC = () => {
             active={isPinned}
             onClick={() => store.togglePin()}
           >
-            <Pin className={`w-3.5 h-3.5 ${isPinned ? "text-cyan-300 rotate-45" : "text-slate-400"}`} />
+            <Pin className={`w-3.5 h-3.5 ${isPinned ? "text-slate-100 rotate-45" : "text-slate-400"}`} />
           </GlassButton>
 
-          {/* Close / Minimize to Bubble */}
           <GlassButton
             variant="icon"
             size="sm"
@@ -48,16 +52,14 @@ export const DictionaryHeader: React.FC = () => {
         </div>
       </div>
 
-      {/* Dedicated full-width search input */}
-      <div className="w-full">
-        <GlassSearch
-          value={searchQuery}
-          onChange={(v) => store.setSearchQuery(v)}
-          onSearch={handleSearch}
-          isLoading={isLoading}
-          placeholder="Tra từ tiếng Anh (vd: mitigate, subtle)..."
-        />
-      </div>
+      <GlassSearch
+        value={searchQuery}
+        onChange={(value) => store.setSearchQuery(value)}
+        onSearch={handleSearch}
+        suggestions={suggestions}
+        isLoading={isLoading}
+        placeholder="Tra từ tiếng Anh..."
+      />
     </div>
   );
 };
