@@ -105,8 +105,9 @@ export const SettingsPanel: React.FC = () => {
             type="checkbox"
             checked={settings.alwaysOnTop}
             onChange={(e) => {
-              update({ alwaysOnTop: e.target.checked });
-              if (e.target.checked !== useAppStore) store.togglePin();
+              const desired = e.target.checked;
+              update({ alwaysOnTop: desired });
+              if (desired !== store.getState().isPinned) store.togglePin();
             }}
             className="w-4 h-4 accent-slate-300 cursor-pointer"
           />
