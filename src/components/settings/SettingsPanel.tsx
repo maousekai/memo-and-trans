@@ -1,42 +1,168 @@
-import React from "react";
+import React, { useState } from "react";
 import { useAppStore, store } from "../../store/useAppStore";
 import { GlassSurface } from "../glass/GlassSurface";
 import { NVIDIA_MODELS } from "../../types/settings";
-import { Key, Volume2, Command, Layers, Sliders, ShieldCheck, AlertCircle, Info } from "lucide-react";
+import {
+  Key,
+  Volume2,
+  Command,
+  Layers,
+  Sliders,
+  ShieldCheck,
+  AlertCircle,
+  Info,
+  Eye,
+  EyeOff,
+  Loader2,
+  CheckCircle2,
+  Trash2,
+} from "lucide-react";
 import { desktopBridge } from "../../services/desktop/desktopBridge";
+import { aiService } from "../../services/ai/nvidiaProvider";
 
 const sectionTitle = "flex items-center gap-2 text-slate-100";
 const settingRow = "grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4 py-2.5";
-const mutedIcon = "w-4 h-4 text-[var(--accent)] opacity-85";
+const mutedIcon = "w-4 h-4 text-slate-300 opacity-80";
 
 export const SettingsPanel: React.FC = () => {
   const settings = useAppStore((s) => s.settings);
   const aiStatus = useAppStore((s) => s.aiStatus);
   const update = (changes: any) => store.updateSettings(changes);
 
+  const [apiKey, setApiKey] = useState("");
+  const [showApiKey, setShowApiKey] = useState(false);
+  const [apiBusy, setApiBusy] = useState(false);
+  const [apiMessage, setApiMessage] = useState<{ ok: boolean; text: string } | null>(null);
+
+  const saveAndTestApiKey = async () => {
+    if (!apiKey.trim()) {
+      setApiMessage({ ok: false, text: "Hãy nhập NVIDIA API key trước." });
+      return;
+    }
+    if (!desktopBridge.isTauri) {
+      setApiMessage({ ok: false, text: "Browser Preview không lưu key. Hãy dùng bản Desktop Windows." });
+      return;
+    }
+
+    setApiBusy(true);
+    setApiMessage(null);
+    try {
+      await aiService.saveApiKey(apiKey.trim());
+      await aiService.testConnection(settings.defaultModel);
+      await store.init();
+      setApiKey("");
+      setApiMessage({ ok: true, text: "Kết nối NVIDIA API thành công. Key đã được lưu an toàn trên Windows." });
+    } catch (error: any) {
+      setApiMessage({ ok: false, text: String(error?.message || error || "Không thể kết nối NVIDIA API.") });
+    } finally {
+      setApiBusy(false);
+    }
+  };
+
+  const removeApiKey = async () => {
+    if (!desktopBridge.isTauri) return;
+    setApiBusy(true);
+    try {
+      await aiService.saveApiKey("");
+      await store.init();
+      setApiMessage({ ok: true, text: "Đã xóa NVIDIA API key khỏi máy." });
+    } catch (error: any) {
+      setApiMessage({ ok: false, text: String(error?.message || error) });
+    } finally {
+      setApiBusy(false);
+    }
+  };
+
   return (
-    <div className="flex flex-col gap-4 pr-1 pb-10 text-xs select-text">
+    <div className="flex flex-col gap-4 pr-1 pb-10 text-xs select-text min-w-0">
       <GlassSurface variant="card" className="p-4 space-y-3">
         <div className="flex items-center justify-between flex-wrap gap-2">
           <div className={sectionTitle}>
             <Key className={mutedIcon} />
-            <h3 className="text-sm font-bold">Mô hình AI</h3>
+            <div>
+              <h3 className="text-sm font-bold">NVIDIA API</h3>
+              <p className="text-[11px] text-slate-400 font-normal mt-0.5">Dùng DeepSeek V4 qua NVIDIA NIM.</p>
+            </div>
           </div>
           {aiStatus.configured ? (
-            <span className="flex items-center gap-1 text-[11px] text-emerald-200/85 bg-emerald-300/[0.07] px-2 py-0.5 rounded-full border border-emerald-200/[0.10]">
-              <ShieldCheck className="w-3.5 h-3.5" /> Đã kết nối NVIDIA API
+            <span className="flex items-center gap-1 text-[11px] text-emerald-200/90 bg-emerald-300/[0.06] px-2 py-1 rounded-full border border-emerald-200/[0.10]">
+              <ShieldCheck className="w-3.5 h-3.5" /> Đã kết nối
             </span>
           ) : (
-            <span className="flex items-center gap-1 text-[11px] text-amber-100/80 bg-amber-200/[0.06] px-2 py-0.5 rounded-full border border-amber-100/[0.10]">
-              <AlertCircle className="w-3.5 h-3.5" /> Đang dùng dữ liệu demo
+            <span className="flex items-center gap-1 text-[11px] text-amber-100/85 bg-amber-200/[0.05] px-2 py-1 rounded-full border border-amber-100/[0.10]">
+              <AlertCircle className="w-3.5 h-3.5" /> Chưa kết nối
             </span>
           )}
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+        {desktopBridge.isTauri ? (
+          <>
+            <div className="flex gap-2 min-w-0">
+              <div className="relative flex-1 min-w-0">
+                <input
+                  type={showApiKey ? "text" : "password"}
+                  value={apiKey}
+                  onChange={(e) => setApiKey(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !apiBusy) saveAndTestApiKey();
+                  }}
+                  placeholder={aiStatus.configured ? "Nhập key mới để thay thế..." : "nvapi-..."}
+                  autoComplete="off"
+                  spellCheck={false}
+                  className="w-full h-10 pl-3 pr-10 rounded-xl bg-white/[0.055] border border-white/[0.10] text-slate-100 placeholder:text-slate-500 outline-none focus:border-white/[0.22]"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowApiKey((v) => !v)}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/[0.06]"
+                  title={showApiKey ? "Ẩn API key" : "Hiện API key"}
+                >
+                  {showApiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
+              <button
+                type="button"
+                onClick={saveAndTestApiKey}
+                disabled={apiBusy || !apiKey.trim()}
+                className="h-10 px-3.5 rounded-xl bg-white/[0.11] hover:bg-white/[0.16] disabled:opacity-40 disabled:cursor-not-allowed border border-white/[0.13] text-white font-semibold whitespace-nowrap flex items-center gap-1.5"
+              >
+                {apiBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
+                Lưu & kiểm tra
+              </button>
+            </div>
+
+            <div className="flex items-start justify-between gap-3 flex-wrap">
+              <p className="text-[11px] text-slate-400 leading-relaxed max-w-[540px]">
+                Key được lưu bằng Windows Credential Manager/Keyring. LexiGlass không lưu key trong localStorage và không gửi key vào giao diện web.
+              </p>
+              {aiStatus.configured && (
+                <button
+                  type="button"
+                  disabled={apiBusy}
+                  onClick={removeApiKey}
+                  className="text-[11px] text-rose-200/80 hover:text-rose-100 flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-rose-300/[0.06]"
+                >
+                  <Trash2 className="w-3.5 h-3.5" /> Ngắt kết nối
+                </button>
+              )}
+            </div>
+          </>
+        ) : (
+          <p className="text-[11px] text-slate-400 leading-relaxed">
+            Browser Preview chỉ dùng biến môi trường phía server. Ô nhập API key chỉ xuất hiện trong bản Desktop Windows để tránh lộ khóa ở frontend.
+          </p>
+        )}
+
+        {apiMessage && (
+          <div className={`text-[11px] px-3 py-2 rounded-xl border ${apiMessage.ok ? "text-emerald-100 bg-emerald-300/[0.05] border-emerald-200/[0.10]" : "text-rose-100 bg-rose-300/[0.05] border-rose-200/[0.10]"}`}>
+            {apiMessage.text}
+          </div>
+        )}
+
+        <div className="pt-1 grid grid-cols-1 md:grid-cols-2 gap-2">
           {[
-            { model: NVIDIA_MODELS.FAST, title: "DeepSeek V4 Flash", desc: "Nhanh, phù hợp tra từ và ví dụ. Đây là lựa chọn mặc định." },
-            { model: NVIDIA_MODELS.QUALITY, title: "DeepSeek V4 Pro", desc: "Dùng khi cần đánh giá câu hoặc phân tích ngữ cảnh sâu hơn." },
+            { model: NVIDIA_MODELS.FAST, title: "DeepSeek V4 Flash", desc: "Nhanh, dùng mặc định khi tra từ và tạo ví dụ." },
+            { model: NVIDIA_MODELS.QUALITY, title: "DeepSeek V4 Pro", desc: "Chậm hơn, dành cho đánh giá câu hoặc ngữ cảnh khó." },
           ].map((item) => {
             const selected = settings.defaultModel === item.model;
             return (
@@ -44,11 +170,11 @@ export const SettingsPanel: React.FC = () => {
                 key={item.model}
                 type="button"
                 onClick={() => update({ defaultModel: item.model })}
-                className={`p-3 rounded-xl border text-left transition-all ${selected ? "bg-white/[0.105] border-white/[0.15] text-white" : "bg-white/[0.025] border-white/[0.07] text-slate-300 hover:bg-white/[0.055]"}`}
+                className={`p-3 rounded-xl border text-left transition-all ${selected ? "bg-white/[0.10] border-white/[0.15] text-white" : "bg-white/[0.025] border-white/[0.07] text-slate-300 hover:bg-white/[0.055]"}`}
               >
                 <div className="font-semibold flex items-center gap-2">
                   <span>{item.title}</span>
-                  {selected && <span className="w-1.5 h-1.5 rounded-full bg-[var(--accent)]" />}
+                  {selected && <span className="w-1.5 h-1.5 rounded-full bg-slate-200" />}
                 </div>
                 <p className="text-[11px] text-slate-400 mt-1 leading-normal">{item.desc}</p>
               </button>
@@ -135,7 +261,7 @@ export const SettingsPanel: React.FC = () => {
           <Layers className={mutedIcon} />
           <h3 className="text-sm font-bold">Kính mờ</h3>
         </div>
-        <p className="text-[11px] text-slate-400 -mt-2">Preview mô phỏng hiệu ứng. Bản Tauri Windows dùng Acrylic thật phía sau WebView.</p>
+        <p className="text-[11px] text-slate-400 -mt-2">Bản Desktop dùng Acrylic thật phía sau WebView.</p>
 
         <div className="space-y-1.5">
           <div className="flex justify-between text-slate-300"><span>Độ trong suốt</span><span className="font-mono text-slate-200">{settings.transparency}%</span></div>
@@ -156,7 +282,7 @@ export const SettingsPanel: React.FC = () => {
           <Sliders className={mutedIcon} />
           <h3 className="text-sm font-bold">Mục tiêu học tập</h3>
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <label className="space-y-1 text-slate-300">
             <span>Từ mới mỗi ngày</span>
             <input type="number" min={1} max={50} value={settings.dailyNewWordTarget} onChange={(e) => update({ dailyNewWordTarget: Number(e.target.value) })} className="w-full p-2 rounded-xl bg-white/[0.055] border border-white/[0.09] text-white outline-none focus:border-white/[0.20]" />
@@ -175,8 +301,8 @@ export const SettingsPanel: React.FC = () => {
         </div>
         <p className="text-[11px] leading-relaxed">
           {desktopBridge.isTauri
-            ? "Đang chạy bản Desktop Native (Tauri 2 + Rust). Khóa API được lưu qua lớp bảo mật hệ điều hành."
-            : "Đang chạy Browser Preview. Hiệu ứng kính thật xuyên qua ứng dụng khác chỉ xuất hiện trong bản Tauri."}
+            ? "Desktop Native · API key lưu trong Windows Credential Manager · NVIDIA NIM gọi trực tiếp từ Rust backend."
+            : "Browser Preview · API đi qua server proxy · Acrylic xuyên ứng dụng chỉ có trong bản Desktop."}
         </p>
       </GlassSurface>
     </div>
