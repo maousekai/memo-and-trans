@@ -12,6 +12,7 @@ export interface DesktopBridge {
   setAlwaysOnTop: (alwaysOnTop: boolean) => Promise<void>;
   setPosition: (pos: WindowPosition) => Promise<void>;
   getPosition: () => Promise<WindowPosition>;
+  startDragging: () => Promise<void>;
   captureSelectedText: () => Promise<string | null>;
   registerGlobalShortcut: (shortcut: string, callback: () => void) => Promise<boolean>;
   unregisterGlobalShortcut: (shortcut: string) => Promise<void>;

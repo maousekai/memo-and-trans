@@ -1,4 +1,5 @@
 import { DesktopBridge, WindowMode, WindowPosition } from "../../types/desktop";
+import { invokeNative, isTauriRuntime } from "./tauriInvoke";
 
 const POS_KEY = "lexiglass_window_position";
 
@@ -8,172 +9,96 @@ export class BrowserDesktopBridge implements DesktopBridge {
   private isAlwaysOnTop = true;
   private position: WindowPosition = { x: 100, y: 100 };
   private shortcutCallbacks: Map<string, () => void> = new Map();
-  private simulatedClipboardText: string = "mitigate";
+  private simulatedClipboardText = "mitigate";
 
   constructor() {
     this.initKeyboardListener();
-    this.loadSavedPosition().then(pos => {
+    this.loadSavedPosition().then((pos) => {
       if (pos) this.position = pos;
     });
   }
 
   private initKeyboardListener() {
     if (typeof window === "undefined") return;
-
     window.addEventListener("keydown", (e) => {
-      // Global shortcut mock: Ctrl + Shift + D
       if (e.ctrlKey && e.shiftKey && (e.key === "D" || e.key === "d")) {
         e.preventDefault();
-        const cb = this.shortcutCallbacks.get("Ctrl + Shift + D");
-        if (cb) cb();
+        this.shortcutCallbacks.get("Ctrl + Shift + D")?.();
       }
     });
   }
 
-  async getWindowMode(): Promise<WindowMode> {
-    return this.currentMode;
-  }
-
-  async setWindowMode(mode: WindowMode): Promise<void> {
-    this.currentMode = mode;
-  }
-
-  async setAlwaysOnTop(alwaysOnTop: boolean): Promise<void> {
-    this.isAlwaysOnTop = alwaysOnTop;
-  }
-
-  async setPosition(pos: WindowPosition): Promise<void> {
-    this.position = pos;
-    await this.savePosition(pos);
-  }
-
-  async getPosition(): Promise<WindowPosition> {
-    return this.position;
-  }
+  async getWindowMode() { return this.currentMode; }
+  async setWindowMode(mode: WindowMode) { this.currentMode = mode; }
+  async setAlwaysOnTop(alwaysOnTop: boolean) { this.isAlwaysOnTop = alwaysOnTop; }
+  async setPosition(pos: WindowPosition) { this.position = pos; await this.savePosition(pos); }
+  async getPosition() { return this.position; }
+  async startDragging() { /* Browser preview cannot drag the OS window. */ }
 
   async captureSelectedText(): Promise<string | null> {
     if (typeof window === "undefined") return null;
-
-    // 1. Check browser active text selection
     const selection = window.getSelection()?.toString().trim();
-    if (selection) {
-      return selection;
-    }
-
-    // 2. Check navigator.clipboard if permitted
+    if (selection) return selection;
     try {
-      if (navigator.clipboard && navigator.clipboard.readText) {
-        const text = await navigator.clipboard.readText();
-        if (text && text.trim().length > 0 && text.trim().length < 60) {
-          return text.trim();
-        }
-      }
+      const text = await navigator.clipboard?.readText?.();
+      if (text && text.trim().length > 0 && text.trim().length < 120) return text.trim();
     } catch {
-      // Clipboard permission denied or unavailable in iframe
+      // Browser/iframe may deny clipboard access.
     }
-
-    // 3. Fallback to simulated clipboard text
     return this.simulatedClipboardText;
   }
 
-  public setSimulatedClipboardText(text: string) {
-    this.simulatedClipboardText = text;
-  }
+  setSimulatedClipboardText(text: string) { this.simulatedClipboardText = text; }
+  async registerGlobalShortcut(shortcut: string, callback: () => void) { this.shortcutCallbacks.set(shortcut, callback); return true; }
+  async unregisterGlobalShortcut(shortcut: string) { this.shortcutCallbacks.delete(shortcut); }
+  async minimizeToBubble() { this.currentMode = "bubble"; }
+  async closeWindow() { this.currentMode = "bubble"; }
 
-  async registerGlobalShortcut(shortcut: string, callback: () => void): Promise<boolean> {
-    this.shortcutCallbacks.set(shortcut, callback);
-    return true;
-  }
-
-  async unregisterGlobalShortcut(shortcut: string): Promise<void> {
-    this.shortcutCallbacks.delete(shortcut);
-  }
-
-  async minimizeToBubble(): Promise<void> {
-    this.currentMode = "bubble";
-  }
-
-  async closeWindow(): Promise<void> {
-    this.currentMode = "bubble";
-  }
-
-  async savePosition(pos: WindowPosition): Promise<void> {
-    try {
-      localStorage.setItem(POS_KEY, JSON.stringify(pos));
-    } catch {
-      // Ignore
-    }
+  async savePosition(pos: WindowPosition) {
+    try { localStorage.setItem(POS_KEY, JSON.stringify(pos)); } catch { /* ignore */ }
   }
 
   async loadSavedPosition(): Promise<WindowPosition | null> {
     try {
       const raw = localStorage.getItem(POS_KEY);
-      if (raw) return JSON.parse(raw);
+      return raw ? JSON.parse(raw) : null;
     } catch {
-      // Ignore
+      return null;
     }
-    return null;
   }
 }
 
 export class TauriDesktopBridge implements DesktopBridge {
   public isTauri = true;
-  private fallback: BrowserDesktopBridge;
+  private fallback = new BrowserDesktopBridge();
 
-  constructor() {
-    this.fallback = new BrowserDesktopBridge();
-  }
-
-  async getWindowMode(): Promise<WindowMode> {
-    return this.fallback.getWindowMode();
-  }
+  async getWindowMode() { return this.fallback.getWindowMode(); }
 
   async setWindowMode(mode: WindowMode): Promise<void> {
+    const size = mode === "bubble"
+      ? { width: 72, height: 72 }
+      : mode === "study"
+        ? { width: 960, height: 680 }
+        : { width: 430, height: 580 };
+
     try {
-      // Native Tauri window resizing
-      // @ts-ignore
-      if (window.__TAURI__?.window) {
-        // @ts-ignore
-        const appWindow = window.__TAURI__.window.getCurrentWindow();
-        if (mode === "bubble") {
-          await appWindow.setSize({ width: 56, height: 56 });
-        } else if (mode === "lookup") {
-          await appWindow.setSize({ width: 440, height: 580 });
-        } else if (mode === "study") {
-          await appWindow.setSize({ width: 920, height: 660 });
-        }
-      }
-    } catch (e) {
-      console.warn("Tauri window resize fallback:", e);
+      await invokeNative("set_window_size", size);
+    } catch (error) {
+      console.warn("Native resize failed:", error);
     }
     await this.fallback.setWindowMode(mode);
   }
 
   async setAlwaysOnTop(alwaysOnTop: boolean): Promise<void> {
     try {
-      // @ts-ignore
-      if (window.__TAURI__?.window) {
-        // @ts-ignore
-        const appWindow = window.__TAURI__.window.getCurrentWindow();
-        await appWindow.setAlwaysOnTop(alwaysOnTop);
-      }
-    } catch {
-      // fallback
+      await invokeNative("set_always_on_top", { alwaysOnTop });
+    } catch (error) {
+      console.warn("Always-on-top update failed:", error);
     }
     await this.fallback.setAlwaysOnTop(alwaysOnTop);
   }
 
   async setPosition(pos: WindowPosition): Promise<void> {
-    try {
-      // @ts-ignore
-      if (window.__TAURI__?.window) {
-        // @ts-ignore
-        const appWindow = window.__TAURI__.window.getCurrentWindow();
-        await appWindow.setPosition(pos);
-      }
-    } catch {
-      // fallback
-    }
     await this.fallback.setPosition(pos);
   }
 
@@ -181,73 +106,42 @@ export class TauriDesktopBridge implements DesktopBridge {
     return this.fallback.getPosition();
   }
 
+  async startDragging(): Promise<void> {
+    try {
+      await invokeNative("start_dragging");
+    } catch (error) {
+      console.warn("Window drag failed:", error);
+    }
+  }
+
   async captureSelectedText(): Promise<string | null> {
     try {
-      // In Tauri, can invoke native clipboard or key simulation (Ctrl+C)
-      // @ts-ignore
-      if (window.__TAURI__?.clipboard) {
-        // @ts-ignore
-        return await window.__TAURI__.clipboard.readText();
-      }
-    } catch {
-      // fallback
+      const text = await invokeNative<string>("get_selected_text");
+      return text?.trim() || null;
+    } catch (error) {
+      console.warn("Native selected-text capture failed:", error);
+      return null;
     }
-    return this.fallback.captureSelectedText();
   }
 
   async registerGlobalShortcut(shortcut: string, callback: () => void): Promise<boolean> {
-    try {
-      // @ts-ignore
-      if (window.__TAURI__?.globalShortcut) {
-        // @ts-ignore
-        await window.__TAURI__.globalShortcut.register(shortcut, callback);
-        return true;
-      }
-    } catch {
-      // fallback
-    }
+    // Keep the browser-level handler as a reliable in-window shortcut.
+    // Native system-wide registration is handled separately by the Tauri plugin/runtime.
     return this.fallback.registerGlobalShortcut(shortcut, callback);
   }
 
   async unregisterGlobalShortcut(shortcut: string): Promise<void> {
-    try {
-      // @ts-ignore
-      if (window.__TAURI__?.globalShortcut) {
-        // @ts-ignore
-        await window.__TAURI__.globalShortcut.unregister(shortcut);
-      }
-    } catch {
-      // fallback
-    }
     await this.fallback.unregisterGlobalShortcut(shortcut);
   }
 
-  async minimizeToBubble(): Promise<void> {
-    await this.setWindowMode("bubble");
-  }
-
-  async closeWindow(): Promise<void> {
-    await this.setWindowMode("bubble");
-  }
-
-  async savePosition(pos: WindowPosition): Promise<void> {
-    return this.fallback.savePosition(pos);
-  }
-
-  async loadSavedPosition(): Promise<WindowPosition | null> {
-    return this.fallback.loadSavedPosition();
-  }
+  async minimizeToBubble() { await this.setWindowMode("bubble"); }
+  async closeWindow() { await this.setWindowMode("bubble"); }
+  async savePosition(pos: WindowPosition) { return this.fallback.savePosition(pos); }
+  async loadSavedPosition() { return this.fallback.loadSavedPosition(); }
 }
 
-// Singleton factory
 function createDesktopBridge(): DesktopBridge {
-  if (
-    typeof window !== "undefined" &&
-    (Boolean((window as any).__TAURI_INTERNALS__) || Boolean((window as any).__TAURI__))
-  ) {
-    return new TauriDesktopBridge();
-  }
-  return new BrowserDesktopBridge();
+  return isTauriRuntime() ? new TauriDesktopBridge() : new BrowserDesktopBridge();
 }
 
 export const desktopBridge = createDesktopBridge();

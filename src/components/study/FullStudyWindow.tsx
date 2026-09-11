@@ -7,6 +7,7 @@ import { FlashcardReview } from "../flashcards/FlashcardReview";
 import { StudyDashboard } from "./StudyDashboard";
 import { SettingsPanel } from "../settings/SettingsPanel";
 import { BookOpen, Brain, BarChart3, Settings, Minimize2, Pin, X, CheckCircle2 } from "lucide-react";
+import { desktopBridge } from "../../services/desktop/desktopBridge";
 
 export const FullStudyWindow: React.FC = () => {
   const studyTab = useAppStore((s) => s.studyTab);
@@ -33,18 +34,25 @@ export const FullStudyWindow: React.FC = () => {
   return (
     <GlassSurface
       variant="window"
-      className="w-[min(960px,calc(100vw-2rem))] h-[min(680px,calc(100vh-2rem))] min-w-0 min-h-[520px] flex flex-col select-text overflow-hidden"
+      className="w-[min(960px,calc(100vw-2rem))] h-[min(680px,calc(100vh-2rem))] min-w-0 min-h-0 flex flex-col select-text overflow-hidden"
     >
-      <div className="h-11 px-4 border-b border-white/[0.07] flex items-center justify-between select-none flex-shrink-0">
-        <div className="flex items-center gap-2 min-w-0">
+      <div
+        className="h-11 px-4 border-b border-white/[0.07] flex items-center justify-between select-none flex-shrink-0 cursor-move"
+        onMouseDown={(event) => {
+          if ((event.target as HTMLElement).closest("button,input,select,textarea")) return;
+          desktopBridge.startDragging();
+        }}
+        title="Giữ và kéo để di chuyển LexiGlass"
+      >
+        <div className="flex items-center gap-2 min-w-0 pointer-events-none">
           <span className="w-2 h-2 rounded-full bg-white/70 border border-white/25 flex-shrink-0" />
           <span className="text-sm font-bold tracking-tight text-white font-['Plus_Jakarta_Sans']">LexiGlass</span>
           <span className="text-[11px] text-slate-400 border-l border-white/[0.08] pl-2 truncate">Không gian học tập</span>
         </div>
 
-        <div className="flex-1 h-full mx-4 cursor-move" title="Kéo để di chuyển cửa sổ" />
+        <div className="flex-1 h-full mx-4" />
 
-        <div className="flex items-center gap-1 flex-shrink-0">
+        <div className="flex items-center gap-1 flex-shrink-0 cursor-default">
           <GlassButton variant="icon" size="sm" tooltip="Về Tra từ nhanh" onClick={() => store.setWindowMode("lookup")}>
             <Minimize2 className="w-3.5 h-3.5 text-slate-300" />
           </GlassButton>
@@ -75,7 +83,7 @@ export const FullStudyWindow: React.FC = () => {
                   title={item.label}
                 >
                   <div className="flex items-center gap-2.5 min-w-0">
-                    <span className={active ? "text-[var(--accent)]" : "text-slate-500"}>{item.icon}</span>
+                    <span className={active ? "text-slate-200" : "text-slate-500"}>{item.icon}</span>
                     <span className="truncate whitespace-nowrap">{item.label}</span>
                   </div>
                   {item.badge !== undefined && (
@@ -95,7 +103,7 @@ export const FullStudyWindow: React.FC = () => {
                 <span className="text-slate-200 font-medium">{savedWords.length}/{settings.dailyNewWordTarget}</span>
               </div>
               <div className="w-full h-1.5 rounded-full bg-white/[0.07] overflow-hidden">
-                <div className="h-full bg-[var(--accent)] opacity-75 rounded-full transition-all duration-300" style={{ width: `${todayProgress}%` }} />
+                <div className="h-full bg-slate-300/70 rounded-full transition-all duration-300" style={{ width: `${todayProgress}%` }} />
               </div>
             </div>
 
@@ -117,7 +125,7 @@ export const FullStudyWindow: React.FC = () => {
           </div>
         </aside>
 
-        <main className="flex-1 min-w-0 min-h-0 h-full overflow-y-auto custom-scrollbar p-4 md:p-5">
+        <main className="flex-1 min-w-0 min-h-0 h-full overflow-y-auto overflow-x-hidden custom-scrollbar p-4 md:p-5">
           {studyTab === "notebook" && <VocabularyNotebook />}
           {studyTab === "flashcards" && <FlashcardReview />}
           {studyTab === "dashboard" && <StudyDashboard />}
