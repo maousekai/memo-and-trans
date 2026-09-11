@@ -1,67 +1,106 @@
 @import "tailwindcss";
 
-/* Design Tokens for Realistic Frosted Glass (Kính Mờ) */
+/* LexiGlass material tokens. Keep the material neutral: accent color is for
+   interaction, not for tinting every surface. Values are adjusted at runtime
+   from Settings in App.tsx. */
 :root {
-  --glass-window: rgba(20, 24, 28, 0.22);
-  --glass-panel: rgba(30, 36, 42, 0.26);
-  --glass-control: rgba(42, 50, 58, 0.28);
-  --glass-border: rgba(255, 255, 255, 0.10);
-  --glass-highlight: rgba(255, 255, 255, 0.12);
-  --text-primary: rgba(245, 248, 252, 0.96);
-  --text-secondary: rgba(197, 207, 218, 0.78);
-  --accent: rgba(88, 204, 255, 0.85);
-  --accent-soft: rgba(88, 204, 255, 0.18);
+  --glass-window-alpha: 0.18;
+  --glass-panel-alpha: 0.075;
+  --glass-control-alpha: 0.095;
+  --glass-blur: 26px;
+  --glass-highlight-alpha: 0.11;
+  --glass-border: rgba(255, 255, 255, 0.13);
+  --glass-border-soft: rgba(255, 255, 255, 0.085);
+  --text-primary: rgba(247, 249, 252, 0.96);
+  --text-secondary: rgba(210, 217, 225, 0.72);
+  --accent: rgba(154, 203, 217, 0.90);
+  --accent-soft: rgba(154, 203, 217, 0.12);
+  --accent-border: rgba(154, 203, 217, 0.24);
 }
 
-/* LexiGlass high-fidelity frosted glass surfaces */
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  background: transparent !important;
+}
+
+body {
+  color: var(--text-primary);
+}
+
+/* Used only in browser preview so transparency can be judged against a real
+   looking surface. The native Tauri window remains completely transparent. */
+.lexi-preview-wallpaper {
+  background:
+    radial-gradient(70% 55% at 18% 20%, rgba(153, 170, 184, 0.22), transparent 72%),
+    radial-gradient(65% 50% at 82% 75%, rgba(100, 117, 130, 0.18), transparent 74%),
+    linear-gradient(135deg, #20262c 0%, #151a1f 48%, #252b31 100%);
+}
+
 .lexi-glass-window {
-  background: var(--glass-window);
-  backdrop-filter: blur(20px) saturate(120%) brightness(1.02);
-  -webkit-backdrop-filter: blur(20px) saturate(120%) brightness(1.02);
+  background:
+    linear-gradient(145deg, rgba(255,255,255,0.035), rgba(255,255,255,0.008)),
+    rgb(20 23 26 / var(--glass-window-alpha));
+  backdrop-filter: blur(var(--glass-blur)) saturate(108%) brightness(1.04);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(108%) brightness(1.04);
   border: 1px solid var(--glass-border);
-  box-shadow: inset 0 1px 0 0 var(--glass-highlight), 0 16px 36px -8px rgba(0, 0, 0, 0.35);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,var(--glass-highlight-alpha)),
+    inset 0 -1px 0 rgba(255,255,255,0.025),
+    0 18px 48px -20px rgba(0,0,0,0.58);
 }
 
 .lexi-glass-panel {
-  background: var(--glass-panel);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.06);
+  background: rgb(255 255 255 / var(--glass-panel-alpha));
+  border: 1px solid var(--glass-border-soft);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.055);
 }
 
 .lexi-glass-control {
-  background: var(--glass-control);
-  border: 1px solid var(--glass-border);
-  box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.07);
+  background: rgb(255 255 255 / var(--glass-control-alpha));
+  border: 1px solid var(--glass-border-soft);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.075);
 }
 
 .lexi-glass-bubble {
-  background: rgba(20, 24, 28, 0.28);
-  backdrop-filter: blur(20px) saturate(120%) brightness(1.02);
-  -webkit-backdrop-filter: blur(20px) saturate(120%) brightness(1.02);
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.15), 0 8px 24px -4px rgba(0, 0, 0, 0.35);
+  background:
+    linear-gradient(145deg, rgba(255,255,255,0.07), rgba(255,255,255,0.015)),
+    rgb(20 23 26 / 0.22);
+  backdrop-filter: blur(var(--glass-blur)) saturate(108%);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(108%);
+  border: 1px solid rgba(255,255,255,0.16);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.14), 0 10px 30px -14px rgba(0,0,0,0.62);
 }
 
-/* Custom minimal scrollbar for frosted glass panels */
+/* Compact frosted autocomplete menu. */
+.lexi-suggestion-popover {
+  background: rgba(28, 31, 34, 0.56);
+  backdrop-filter: blur(28px) saturate(106%);
+  -webkit-backdrop-filter: blur(28px) saturate(106%);
+  border: 1px solid rgba(255,255,255,0.12);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), 0 16px 36px -18px rgba(0,0,0,0.7);
+}
+
 .custom-scrollbar::-webkit-scrollbar {
   width: 5px;
   height: 5px;
 }
-
-.custom-scrollbar::-webkit-scrollbar-track {
-  background: transparent;
-}
-
+.custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
 .custom-scrollbar::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.12);
+  background: rgba(255,255,255,0.13);
   border-radius: 9999px;
 }
-
-.custom-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.22);
-}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.23); }
 
 ::selection {
-  background-color: rgba(88, 204, 255, 0.24);
-  color: #ffffff;
+  background-color: rgba(154,203,217,0.24);
+  color: white;
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .lexi-glass-window { --glass-window-alpha: 0.74; }
+  .lexi-glass-panel { --glass-panel-alpha: 0.13; }
 }

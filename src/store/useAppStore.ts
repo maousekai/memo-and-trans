@@ -1,13 +1,14 @@
 import { useSyncExternalStore } from "react";
 import { DictionaryEntry } from "../types/dictionary";
-import { SavedWord, QueueType, GeneratedFlashcard, FSRSRating, CardType, StudyDashboardStats } from "../types/study";
+import { SavedWord, QueueType, GeneratedFlashcard, FSRSRating, StudyDashboardStats } from "../types/study";
 import { WindowMode } from "../types/desktop";
-import { AppSettings, DEFAULT_SETTINGS } from "../types/settings";
+import { AppSettings, NVIDIA_MODELS } from "../types/settings";
 import { storageService } from "../services/database/storageService";
 import { aiService } from "../services/ai/nvidiaProvider";
 import { desktopBridge, BrowserDesktopBridge } from "../services/desktop/desktopBridge";
 import { DEMO_DICTIONARY_ENTRIES } from "../data/demoEntries";
 import { generateFlashcards, selectSmartCardType } from "../services/fsrs/fsrsEngine";
+import { wordSuggestionService } from "../services/search/wordSuggestionService";
 
 export type StudyTab = "notebook" | "flashcards" | "dashboard" | "settings";
 
@@ -27,14 +28,22 @@ interface AppState {
     provider: string;
     defaultModel: string;
   };
-  // Study session
   queueType: QueueType;
   studyCards: GeneratedFlashcard[];
   activeCardIndex: number;
   isAnswerRevealed: boolean;
 }
 
+function normalizePersistedSettings(settings: AppSettings): AppSettings {
+  // Migrate previews created before DeepSeek V4 became the default.
+  if (!settings.defaultModel || settings.defaultModel.includes("nemotron")) {
+    return { ...settings, defaultModel: NVIDIA_MODELS.FAST };
+  }
+  return settings;
+}
+
 const initialWord = DEMO_DICTIONARY_ENTRIES["mitigate"];
+const initialSettings = normalizePersistedSettings(storageService.getSettings());
 
 let state: AppState = {
   windowMode: "lookup",
@@ -46,11 +55,11 @@ let state: AppState = {
   error: null,
   isDemoEntry: true,
   savedWords: storageService.getAllWords(),
-  settings: storageService.getSettings(),
+  settings: initialSettings,
   aiStatus: {
     configured: false,
     provider: "NVIDIA NIM",
-    defaultModel: "nvidia/nemotron-3.5-lightning-30b-a3b",
+    defaultModel: NVIDIA_MODELS.FAST,
   },
   queueType: "due",
   studyCards: [],
@@ -61,7 +70,7 @@ let state: AppState = {
 const listeners = new Set<() => void>();
 
 function notify() {
-  listeners.forEach((l) => l());
+  listeners.forEach((listener) => listener());
 }
 
 function updateState(partial: Partial<AppState>) {
@@ -69,49 +78,46 @@ function updateState(partial: Partial<AppState>) {
   notify();
 }
 
-// Prepare review cards for current queue
+// FSRS decides WHEN a word is due. The learning engine decides HOW to review it.
+// Never fabricate a review queue when nothing is actually due/new/weak.
 function buildStudyQueue(type: QueueType, words: SavedWord[]): GeneratedFlashcard[] {
   const now = new Date();
   let candidateWords: SavedWord[] = [];
 
   if (type === "due") {
-    candidateWords = words.filter(
-      (w) => !w.isKnown && new Date(w.fsrs.due).getTime() <= now.getTime()
-    );
-    if (candidateWords.length === 0) {
-      // If nothing overdue, pick words with lowest stability
-      candidateWords = [...words]
-        .filter((w) => !w.isKnown)
-        .sort((a, b) => a.fsrs.stability - b.fsrs.stability)
-        .slice(0, 10);
-    }
+    candidateWords = words
+      .filter((word) => !word.isKnown && new Date(word.fsrs.due).getTime() <= now.getTime())
+      .sort((a, b) => new Date(a.fsrs.due).getTime() - new Date(b.fsrs.due).getTime());
   } else if (type === "new") {
-    candidateWords = words.filter((w) => w.fsrs.reps === 0);
-    if (candidateWords.length === 0) {
-      candidateWords = words.slice(0, 5);
-    }
+    candidateWords = words
+      .filter((word) => !word.isKnown && word.fsrs.reps === 0)
+      .slice(0, state.settings.dailyNewWordTarget);
   } else if (type === "weak") {
-    candidateWords = words.filter(
-      (w) =>
-        w.fsrs.lapses > 0 ||
-        w.weaknesses.meaningErrors > 0 ||
-        w.weaknesses.spellingErrors > 0 ||
-        w.mastery < 50
-    );
-    if (candidateWords.length === 0) {
-      candidateWords = words.slice(0, 5);
-    }
+    candidateWords = words
+      .filter(
+        (word) =>
+          !word.isKnown &&
+          (word.fsrs.lapses > 0 ||
+            word.weaknesses.meaningErrors > 0 ||
+            word.weaknesses.spellingErrors > 0 ||
+            word.weaknesses.listeningErrors > 0 ||
+            word.weaknesses.contextErrors > 0 ||
+            word.weaknesses.productionErrors > 0 ||
+            word.mastery < 50),
+      )
+      .sort((a, b) => a.mastery - b.mastery)
+      .slice(0, 10);
   }
 
   const generated: GeneratedFlashcard[] = [];
   candidateWords.forEach((word) => {
-    const all = generateFlashcards(word);
+    const allCards = generateFlashcards(word);
     const preferredType = selectSmartCardType(word);
-    const matched = all.find((c) => c.type === preferredType) || all[0];
-    if (matched) generated.push(matched);
+    const selected = allCards.find((card) => card.type === preferredType) || allCards[0];
+    if (selected) generated.push(selected);
   });
 
-  return generated.length > 0 ? generated : [];
+  return generated;
 }
 
 export const store = {
@@ -123,21 +129,22 @@ export const store = {
     };
   },
 
-  // Actions
   init: async () => {
     try {
+      // Persist one-time model migration so an old localStorage value cannot
+      // silently switch the project back to Nemotron.
+      storageService.saveSettings(state.settings);
+
       const status = await aiService.checkStatus();
       updateState({ aiStatus: status });
 
-      // Register global shortcut on bridge
-      desktopBridge.registerGlobalShortcut("Ctrl + Shift + D", () => {
+      desktopBridge.registerGlobalShortcut(state.settings.globalShortcut, () => {
         store.captureSelectedAndLookup();
       });
 
-      // Prepare initial study queue
       store.setQueueType("due");
     } catch {
-      // Continue with demo state
+      // Continue with cached/demo state if desktop or API initialization fails.
     }
   },
 
@@ -169,6 +176,7 @@ export const store = {
     try {
       const entry = await aiService.lookupWord(word, state.settings.defaultModel, forceRefresh);
       const isDemo = Boolean(DEMO_DICTIONARY_ENTRIES[entry.normalizedWord.toLowerCase()]);
+      wordSuggestionService.recordSuccessfulSearch(entry.normalizedWord);
       updateState({
         currentEntry: entry,
         isLoading: false,
@@ -186,23 +194,17 @@ export const store = {
   captureSelectedAndLookup: async () => {
     const captured = await desktopBridge.captureSelectedText();
     if (captured && captured.trim()) {
-      if (state.windowMode === "bubble") {
-        await store.setWindowMode("lookup");
-      }
+      if (state.windowMode === "bubble") await store.setWindowMode("lookup");
       await store.searchWord(captured.trim());
-    } else {
-      if (state.windowMode === "bubble") {
-        await store.setWindowMode("lookup");
-      }
+    } else if (state.windowMode === "bubble") {
+      await store.setWindowMode("lookup");
     }
   },
 
   saveCurrentWord: (tags?: string[], notes?: string) => {
     if (!state.currentEntry) return;
     storageService.saveWord(state.currentEntry, { tags, notes });
-    updateState({
-      savedWords: storageService.getAllWords(),
-    });
+    updateState({ savedWords: storageService.getAllWords() });
   },
 
   isCurrentWordSaved: (): boolean => {
@@ -212,39 +214,28 @@ export const store = {
 
   updateSavedWord: (id: string, updates: Partial<SavedWord>) => {
     storageService.updateWord(id, updates);
-    updateState({
-      savedWords: storageService.getAllWords(),
-    });
+    updateState({ savedWords: storageService.getAllWords() });
   },
 
   deleteSavedWord: (id: string) => {
     storageService.deleteWord(id);
-    updateState({
-      savedWords: storageService.getAllWords(),
-    });
-    // refresh study queue if in progress
+    updateState({ savedWords: storageService.getAllWords() });
     store.setQueueType(state.queueType);
   },
 
   toggleFavorite: (id: string) => {
     storageService.toggleFavorite(id);
-    updateState({
-      savedWords: storageService.getAllWords(),
-    });
+    updateState({ savedWords: storageService.getAllWords() });
   },
 
   toggleKnown: (id: string) => {
     storageService.toggleKnown(id);
-    updateState({
-      savedWords: storageService.getAllWords(),
-    });
+    updateState({ savedWords: storageService.getAllWords() });
   },
 
   resetProgress: (id: string) => {
     storageService.resetProgress(id);
-    updateState({
-      savedWords: storageService.getAllWords(),
-    });
+    updateState({ savedWords: storageService.getAllWords() });
   },
 
   updateSettings: (newSettings: Partial<AppSettings>) => {
@@ -253,7 +244,6 @@ export const store = {
     updateState({ settings: merged });
   },
 
-  // Flashcards & Spaced repetition
   setQueueType: (type: QueueType) => {
     const cards = buildStudyQueue(type, state.savedWords);
     updateState({
@@ -275,10 +265,9 @@ export const store = {
     const isMistake = rating === "again" || rating === "hard";
     storageService.recordReview(currentCard.wordId, currentCard.type, rating, isMistake);
 
-    const nextIndex = state.activeCardIndex + 1;
     updateState({
       savedWords: storageService.getAllWords(),
-      activeCardIndex: nextIndex,
+      activeCardIndex: state.activeCardIndex + 1,
       isAnswerRevealed: false,
     });
   },
@@ -287,9 +276,7 @@ export const store = {
     store.setQueueType(state.queueType);
   },
 
-  getStats: (): StudyDashboardStats => {
-    return storageService.getDashboardStats();
-  },
+  getStats: (): StudyDashboardStats => storageService.getDashboardStats(),
 
   setSimulatedClipboard: (text: string) => {
     if (desktopBridge instanceof BrowserDesktopBridge) {

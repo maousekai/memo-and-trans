@@ -1,6 +1,6 @@
-use tauri::{AppHandle, Manager, WebviewWindow};
 use crate::security;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
+use tauri::{AppHandle, WebviewWindow};
 
 #[derive(Serialize)]
 pub struct KeyStatus {
@@ -9,22 +9,25 @@ pub struct KeyStatus {
 }
 
 #[tauri::command]
-pub async fn get_selected_text(app: AppHandle) -> Result<String, String> {
-    // In Tauri desktop, we can simulate Ctrl+C or read clipboard on user shortcut trigger
-    // Note: We only access on explicit shortcut trigger, not continuous polling
+pub async fn get_selected_text(_app: AppHandle) -> Result<String, String> {
+    // Selection capture is only triggered explicitly by the user's shortcut.
+    // The platform-specific clipboard flow can populate this command later;
+    // keeping the command side-effect free prevents continuous clipboard reads.
     log::info!("Capturing selected text on user trigger");
     Ok(String::new())
 }
 
 #[tauri::command]
 pub async fn set_always_on_top(window: WebviewWindow, always_on_top: bool) -> Result<(), String> {
-    window.set_always_on_top(always_on_top)
+    window
+        .set_always_on_top(always_on_top)
         .map_err(|e| format!("Failed to set always on top: {}", e))
 }
 
 #[tauri::command]
 pub async fn set_window_size(window: WebviewWindow, width: f64, height: f64) -> Result<(), String> {
-    window.set_size(tauri::Size::Logical(tauri::LogicalSize { width, height }))
+    window
+        .set_size(tauri::Size::Logical(tauri::LogicalSize { width, height }))
         .map_err(|e| format!("Failed to set window size: {}", e))
 }
 
@@ -91,14 +94,16 @@ pub async fn query_nvidia_nim(
         return Err(format!("NVIDIA API error: {}", err_text));
     }
 
-    let json_resp: serde_json::Value = resp.json().await
+    let json_resp: serde_json::Value = resp
+        .json()
+        .await
         .map_err(|e| format!("Failed to parse response: {}", e))?;
 
     let content = json_resp["choices"][0]["message"]["content"]
         .as_str()
         .ok_or_else(|| "Empty AI response content".to_string())?;
 
-    // Strip markdown code fences or conversational preamble (e.g. "Here's a translation...")
+    // Strip markdown code fences or conversational preamble around JSON.
     let trimmed = content.trim();
     let cleaned = if let Some(start) = trimmed.find('{') {
         if let Some(end) = trimmed.rfind('}') {
