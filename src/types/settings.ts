@@ -13,10 +13,10 @@ export interface AppSettings {
   alwaysOnTop: boolean;
   startWithWindows: boolean;
   launchMinimized: boolean;
-  glassIntensity: number; // 0 to 100
-  blurAmount: number; // 0 to 40 px
-  transparency: number; // 0 to 100
-  animationIntensity: number; // 0 to 100
+  glassIntensity: number;
+  blurAmount: number;
+  transparency: number;
+  animationIntensity: number;
   theme: AppTheme;
   dailyNewWordTarget: number;
   dailyReviewTarget: number;
@@ -30,12 +30,15 @@ export const DEFAULT_SETTINGS: AppSettings = {
   alwaysOnTop: true,
   startWithWindows: false,
   launchMinimized: false,
-  glassIntensity: 75,
-  blurAmount: 22,
-  transparency: 72,
-  animationIntensity: 80,
+  // Neutral misted glass by default: visible desktop shapes, readable foreground.
+  glassIntensity: 55,
+  blurAmount: 26,
+  transparency: 80,
+  animationIntensity: 70,
   theme: "dark",
-  dailyNewWordTarget: 10,
+  // A small daily new-word budget works better with spaced retrieval than
+  // introducing 10+ words at once.
+  dailyNewWordTarget: 5,
   dailyReviewTarget: 25,
   useDemoDataWhenNoKey: true,
 };
