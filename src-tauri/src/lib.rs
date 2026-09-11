@@ -1,0 +1,48 @@
+pub mod commands;
+pub mod db;
+pub mod security;
+
+use tauri::{Manager, WebviewWindow};
+use window_vibrancy::{apply_acrylic, apply_mica};
+
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn run() {
+    tauri::Builder::default()
+        .plugin(tauri_plugin_sql::Builder::default().build())
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacConfig::default(),
+            Some(vec!["--minimized"]),
+        ))
+        .setup(|app| {
+            let window: WebviewWindow = app.get_webview_window("main").unwrap();
+
+            // On Windows 10/11, apply native Acrylic / Mica backdrop blur
+            #[cfg(target_os = "windows")]
+            {
+                use window_vibrancy::apply_acrylic;
+                // Tint color: subtle dark translucent navy
+                let _ = apply_acrylic(&window, Some((16, 20, 28, 180)));
+            }
+
+            // On macOS, apply vibrant liquid glass blur
+            #[cfg(target_os = "macos")]
+            {
+                use window_vibrancy::{apply_vibrancy, NSVisualEffectMaterial};
+                let _ = apply_vibrancy(&window, NSVisualEffectMaterial::HudWindow, None, None);
+            }
+
+            Ok(())
+        })
+        .invoke_handler(tauri::generate_handler![
+            commands::get_selected_text,
+            commands::set_always_on_top,
+            commands::set_window_size,
+            commands::get_api_key_status,
+            commands::save_api_key,
+            commands::query_nvidia_nim
+        ])
+        .run(tauri::generate_context!())
+        .expect("error while running LexiGlass desktop application");
+}

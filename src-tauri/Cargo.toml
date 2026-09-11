@@ -1,0 +1,28 @@
+[package]
+name = "lexiglass"
+version = "1.0.0"
+description = "Production-quality English-Vietnamese AI Dictionary & Vocabulary Learning Desktop Companion"
+authors = ["LexiGlass Team"]
+edition = "2021"
+
+[lib]
+name = "lexiglass_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.0.0", features = [] }
+
+[dependencies]
+tauri = { version = "2.0.0", features = ["tray-icon"] }
+tauri-plugin-sql = { version = "2.0.0", features = ["sqlite"] }
+tauri-plugin-global-shortcut = "2.0.0"
+tauri-plugin-clipboard-manager = "2.0.0"
+tauri-plugin-autostart = "2.0.0"
+window-vibrancy = "0.5.2"
+keyring = "2.1"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+rusqlite = { version = "0.31", features = ["bundled"] }
+tokio = { version = "1", features = ["full"] }
+reqwest = { version = "0.12", features = ["json"] }
+log = "0.4"

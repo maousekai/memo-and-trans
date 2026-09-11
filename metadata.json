@@ -1,0 +1,6 @@
+{
+  "name": "LexiGlass",
+  "description": "Production-quality English-Vietnamese AI Dictionary & Vocabulary Learning desktop companion with Liquid Glass interface.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
