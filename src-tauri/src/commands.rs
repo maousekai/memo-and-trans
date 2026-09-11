@@ -10,9 +10,6 @@ pub struct KeyStatus {
 
 #[tauri::command]
 pub async fn get_selected_text(_app: AppHandle) -> Result<String, String> {
-    // Selection capture is only triggered explicitly by the user's shortcut.
-    // The platform-specific clipboard flow can populate this command later;
-    // keeping the command side-effect free prevents continuous clipboard reads.
     log::info!("Capturing selected text on user trigger");
     Ok(String::new())
 }
@@ -29,6 +26,13 @@ pub async fn set_window_size(window: WebviewWindow, width: f64, height: f64) -> 
     window
         .set_size(tauri::Size::Logical(tauri::LogicalSize { width, height }))
         .map_err(|e| format!("Failed to set window size: {}", e))
+}
+
+#[tauri::command]
+pub async fn start_dragging(window: WebviewWindow) -> Result<(), String> {
+    window
+        .start_dragging()
+        .map_err(|e| format!("Failed to start window drag: {}", e))
 }
 
 #[tauri::command]
@@ -69,7 +73,7 @@ pub async fn query_nvidia_nim(
         "messages": [
             {
                 "role": "system",
-                "content": "You are LexiGlass AI. Output strictly valid JSON."
+                "content": "You are LexiGlass AI. Output strictly valid JSON only."
             },
             {
                 "role": "user",
@@ -90,8 +94,9 @@ pub async fn query_nvidia_nim(
         .map_err(|e| format!("Network request failed: {}", e))?;
 
     if !resp.status().is_success() {
+        let status = resp.status();
         let err_text = resp.text().await.unwrap_or_default();
-        return Err(format!("NVIDIA API error: {}", err_text));
+        return Err(format!("NVIDIA API error {}: {}", status, err_text));
     }
 
     let json_resp: serde_json::Value = resp
@@ -103,15 +108,10 @@ pub async fn query_nvidia_nim(
         .as_str()
         .ok_or_else(|| "Empty AI response content".to_string())?;
 
-    // Strip markdown code fences or conversational preamble around JSON.
     let trimmed = content.trim();
     let cleaned = if let Some(start) = trimmed.find('{') {
         if let Some(end) = trimmed.rfind('}') {
-            if end > start {
-                &trimmed[start..=end]
-            } else {
-                trimmed
-            }
+            if end > start { &trimmed[start..=end] } else { trimmed }
         } else {
             trimmed
         }
