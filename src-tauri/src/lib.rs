@@ -17,9 +17,6 @@ pub fn run() {
         .setup(|app| {
             let window: WebviewWindow = app.get_webview_window("main").unwrap();
 
-            // Native Acrylic provides the real cross-window blur on Windows.
-            // Keep the tint neutral and low-alpha; the React layer adds only a
-            // subtle frosted surface above it.
             #[cfg(target_os = "windows")]
             {
                 use window_vibrancy::{apply_acrylic, apply_blur};
@@ -45,6 +42,7 @@ pub fn run() {
             commands::get_selected_text,
             commands::set_always_on_top,
             commands::set_window_size,
+            commands::start_dragging,
             commands::get_api_key_status,
             commands::save_api_key,
             commands::query_nvidia_nim
