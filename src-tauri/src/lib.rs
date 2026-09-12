@@ -5,13 +5,58 @@ pub mod security;
 use tauri::{Manager, WebviewWindow};
 
 #[cfg(target_os = "windows")]
+fn apply_windows_native_frame(window: &WebviewWindow) {
+    use std::ffi::c_void;
+
+    #[link(name = "dwmapi")]
+    extern "system" {
+        fn DwmSetWindowAttribute(
+            hwnd: isize,
+            dw_attribute: u32,
+            pv_attribute: *const c_void,
+            cb_attribute: u32,
+        ) -> i32;
+    }
+
+    // Windows 11 native corner + border attributes. Acrylic is applied to the
+    // whole HWND, so CSS border-radius alone cannot hide the square backdrop
+    // corners. Asking DWM to round the HWND clips the native material too.
+    const DWMWA_WINDOW_CORNER_PREFERENCE: u32 = 33;
+    const DWMWCP_ROUND: u32 = 2;
+    const DWMWA_BORDER_COLOR: u32 = 34;
+    const DWMWA_COLOR_NONE: u32 = 0xFFFF_FFFE;
+
+    if let Ok(hwnd) = window.hwnd() {
+        unsafe {
+            let corner = DWMWCP_ROUND;
+            let _ = DwmSetWindowAttribute(
+                hwnd.0 as isize,
+                DWMWA_WINDOW_CORNER_PREFERENCE,
+                &corner as *const u32 as *const c_void,
+                std::mem::size_of::<u32>() as u32,
+            );
+
+            let border = DWMWA_COLOR_NONE;
+            let _ = DwmSetWindowAttribute(
+                hwnd.0 as isize,
+                DWMWA_BORDER_COLOR,
+                &border as *const u32 as *const c_void,
+                std::mem::size_of::<u32>() as u32,
+            );
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
 pub(crate) fn apply_windows_glass(window: &WebviewWindow) {
     use window_vibrancy::{apply_acrylic, apply_blur};
 
-    // `apply_blur` is unreliable on newer Windows 11 builds and can look
-    // transparent only while the window is moving. Acrylic is the supported
-    // Windows 10/11 path, so use a very light tint here and let the web layer
-    // provide card contrast. Blur is only a last-resort fallback.
+    // Keep the native frame rounded every time DWM recreates the composition
+    // surface during focus, resize or drag transitions.
+    apply_windows_native_frame(window);
+
+    // Acrylic is the supported Windows 10/11 path. Keep the tint very light so
+    // the web layer controls readability without turning the app into fog.
     if apply_acrylic(window, Some((17, 23, 31, 14))).is_err() {
         let _ = apply_blur(window, Some((17, 23, 31, 10)));
     }
@@ -21,11 +66,9 @@ pub(crate) fn apply_windows_glass(window: &WebviewWindow) {
 pub(crate) fn clear_windows_glass(window: &WebviewWindow) {
     use window_vibrancy::{clear_acrylic, clear_blur};
 
-    // Windows can replace background Acrylic with a solid fallback while the
-    // app is inactive. Clearing the native material keeps the transparent
-    // WebView visible instead of turning LexiGlass into an opaque dark sheet.
     let _ = clear_acrylic(window);
     let _ = clear_blur(window);
+    apply_windows_native_frame(window);
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -47,11 +90,6 @@ pub fn run() {
 
                 apply_windows_glass(&window);
 
-                // Re-apply after focus/resize transitions. On recent Windows
-                // 11 builds DWM may rebuild the backdrop surface during these
-                // transitions. When the app loses focus, drop the native
-                // material so the transparent WebView remains visibly clear
-                // instead of accepting Windows' opaque inactive fallback.
                 let event_window = window.clone();
                 window.on_window_event(move |event| match event {
                     WindowEvent::Focused(true) | WindowEvent::Resized(_) => {
