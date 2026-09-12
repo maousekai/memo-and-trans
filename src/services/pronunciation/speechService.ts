@@ -10,7 +10,7 @@ class SpeechService {
   private voices: SpeechSynthesisVoice[] = [];
   private voicesLoaded = false;
   private provider: SpeechProvider = "nvidia-magpie";
-  private voice = NVIDIA_TTS.DEFAULT_VOICE;
+  private voice: string = NVIDIA_TTS.DEFAULT_VOICE;
   private rate = 0.92;
   private activeAudio: HTMLAudioElement | null = null;
   private activeObjectUrl: string | null = null;
