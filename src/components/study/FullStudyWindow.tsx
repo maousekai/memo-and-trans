@@ -8,7 +8,7 @@ import { StudyAudioControls } from "../flashcards/StudyAudioControls";
 import { StudyDashboard } from "./StudyDashboard";
 import { SettingsPanel } from "../settings/SettingsPanel";
 import { SpeechProviderSettings } from "../settings/SpeechProviderSettings";
-import { BookOpen, Brain, BarChart3, Settings, Minimize2, Pin, X, CheckCircle2 } from "lucide-react";
+import { BookOpen, Brain, BarChart3, Settings, Minimize2, Pin, X, CheckCircle2, Layers } from "lucide-react";
 
 export const FullStudyWindow: React.FC = () => {
   const studyTab = useAppStore((s) => s.studyTab);
@@ -47,6 +47,15 @@ export const FullStudyWindow: React.FC = () => {
         <div className="flex-1 h-full mx-4" />
 
         <div className="flex items-center gap-1 flex-shrink-0">
+          <GlassButton
+            variant="icon"
+            size="sm"
+            tooltip={settings.liquidGlassEnabled ? "Tắt Liquid Glass" : "Bật Liquid Glass"}
+            active={settings.liquidGlassEnabled}
+            onClick={() => store.updateSettings({ liquidGlassEnabled: !settings.liquidGlassEnabled })}
+          >
+            <Layers className={`w-3.5 h-3.5 ${settings.liquidGlassEnabled ? "text-cyan-200" : "text-slate-300"}`} />
+          </GlassButton>
           <GlassButton variant="icon" size="sm" tooltip="Về Tra từ nhanh" onClick={() => store.setWindowMode("lookup")}>
             <Minimize2 className="w-3.5 h-3.5 text-slate-300" />
           </GlassButton>
