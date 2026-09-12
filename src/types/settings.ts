@@ -14,7 +14,6 @@ export const NVIDIA_TTS = {
   VOICES: [
     "Magpie-Multilingual.EN-US.Aria",
     "Magpie-Multilingual.EN-US.Jason",
-    "Magpie-Multilingual.EN-US.Sofia",
   ],
 } as const;
 
@@ -50,7 +49,6 @@ export const DEFAULT_SETTINGS: AppSettings = {
   alwaysOnTop: true,
   startWithWindows: false,
   launchMinimized: false,
-  // Clear layered glass: native blur behind the WebView, crisp readable panels above it.
   glassIntensity: 46,
   blurAmount: 14,
   transparency: 72,
