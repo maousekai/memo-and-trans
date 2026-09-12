@@ -20,8 +20,12 @@ pub fn run() {
             #[cfg(target_os = "windows")]
             {
                 use window_vibrancy::{apply_acrylic, apply_blur};
-                if apply_acrylic(&window, Some((28, 31, 34, 82))).is_err() {
-                    let _ = apply_blur(&window, Some((28, 31, 34, 70)));
+
+                // Keep the native material genuinely translucent. The previous
+                // alpha was dense enough to turn Acrylic into a grey fog once
+                // the WebView painted its own glass layer on top.
+                if apply_acrylic(&window, Some((16, 19, 22, 44))).is_err() {
+                    let _ = apply_blur(&window, Some((16, 19, 22, 32)));
                 }
             }
 
