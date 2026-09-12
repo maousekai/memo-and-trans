@@ -1,5 +1,5 @@
 import React, { useMemo } from "react";
-import { Pin, X, Settings } from "lucide-react";
+import { Pin, X, Settings, Layers } from "lucide-react";
 import { GlassSearch } from "../glass/GlassSearch";
 import { GlassButton } from "../glass/GlassButton";
 import { store, useAppStore } from "../../store/useAppStore";
@@ -10,6 +10,7 @@ export const DictionaryHeader: React.FC = () => {
   const isLoading = useAppStore((s) => s.isLoading);
   const isPinned = useAppStore((s) => s.isPinned);
   const savedWords = useAppStore((s) => s.savedWords);
+  const liquidGlassEnabled = useAppStore((s) => s.settings.liquidGlassEnabled);
 
   const suggestions = useMemo(
     () => wordSuggestionService.suggest(searchQuery, savedWords, 5),
@@ -36,6 +37,16 @@ export const DictionaryHeader: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-1">
+          <GlassButton
+            variant="icon"
+            size="sm"
+            tooltip={liquidGlassEnabled ? "Tắt Liquid Glass" : "Bật Liquid Glass"}
+            active={liquidGlassEnabled}
+            onClick={() => store.updateSettings({ liquidGlassEnabled: !liquidGlassEnabled })}
+          >
+            <Layers className={`w-3.5 h-3.5 ${liquidGlassEnabled ? "text-cyan-200" : "text-slate-400"}`} />
+          </GlassButton>
+
           <GlassButton
             variant="icon"
             size="sm"
