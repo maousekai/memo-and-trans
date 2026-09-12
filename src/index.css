@@ -153,9 +153,10 @@ body {
 
 /* Native Windows mode
    ------------------------------------------------------------
-   Rust owns the desktop diffusion and DWM owns the physical rounded HWND.
-   CSS still clips every WebView layer so no square paint can leak outside the
-   visible glass edge. */
+   The native HWND stays genuinely transparent in both focused and unfocused
+   states. No Acrylic/Blur material is toggled on focus because Windows 11 can
+   turn that material into a noticeably foggier sheet. The WebView supplies the
+   stable tint/reflection layers while DWM only owns the physical rounded frame. */
 html.tauri-runtime,
 html.tauri-runtime body,
 html.tauri-runtime #root,
@@ -183,29 +184,42 @@ html.tauri-runtime .lexi-glass-window {
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
   background:
-    radial-gradient(110% 68% at 5% -8%, rgba(255,255,255,0.10), transparent 38%),
-    radial-gradient(66% 42% at 103% 2%, rgba(178,220,240,0.045), transparent 48%),
-    linear-gradient(145deg, rgba(240,248,255,0.040), rgba(220,235,246,0.012) 48%, rgba(196,218,232,0.020)),
+    radial-gradient(110% 68% at 5% -8%, rgba(255,255,255,0.085), transparent 36%),
+    radial-gradient(66% 42% at 103% 2%, rgba(178,220,240,0.035), transparent 46%),
+    linear-gradient(145deg, rgba(240,248,255,0.032), rgba(220,235,246,0.010) 48%, rgba(196,218,232,0.016)),
     rgb(12 18 24 / var(--glass-window-alpha));
-  border-color: rgba(239,247,255,0.20);
+  border-color: rgba(239,247,255,0.18);
   box-shadow:
     inset 0 1px 0 rgba(255,255,255,var(--glass-highlight-alpha)),
-    inset 1px 0 0 rgba(255,255,255,0.05),
-    inset 0 -1px 0 rgba(0,0,0,0.12);
+    inset 1px 0 0 rgba(255,255,255,0.04),
+    inset 0 -1px 0 rgba(0,0,0,0.10);
 }
 
-/* Quick Lookup is the only window surface authored with the 400px preview
-   width. Force it to begin at the real top edge in native mode instead of
-   allowing any inherited centering/spacer to create the large dead strip that
-   was visible above the LexiGlass header. */
-html.tauri-runtime .lexi-glass-window[class*="w-[400px]"] {
+/* Native lookup is anchored to the real client-area origin. This bypasses any
+   flex centering or legacy preview sizing and removes the unused strip above
+   the LexiGlass header. */
+html.tauri-runtime .lexi-native-lookup-host {
+  position: absolute !important;
+  inset: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+}
+
+html.tauri-runtime .lexi-native-lookup-host > .lexi-glass-window {
+  position: absolute !important;
+  inset: 0 !important;
+  margin: 0 !important;
+  padding: 6px 14px 10px !important;
+  display: flex !important;
+  flex-direction: column !important;
   justify-content: flex-start !important;
   align-items: stretch !important;
-  padding-top: 10px !important;
-  padding-bottom: 10px !important;
 }
 
-html.tauri-runtime .lexi-glass-window[class*="w-[400px]"] > :first-child {
+html.tauri-runtime .lexi-native-lookup-host > .lexi-glass-window > :first-child {
   margin-top: 0 !important;
 }
 
