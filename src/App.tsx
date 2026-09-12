@@ -82,19 +82,32 @@ export default function App() {
 
   useEffect(() => {
     const root = document.documentElement;
+    root.classList.toggle("liquid-glass-enabled", settings.liquidGlassEnabled);
+    root.classList.toggle("liquid-glass-disabled", !settings.liquidGlassEnabled);
+
+    return () => {
+      root.classList.remove("liquid-glass-enabled", "liquid-glass-disabled");
+    };
+  }, [settings.liquidGlassEnabled]);
+
+  useEffect(() => {
+    const root = document.documentElement;
     const transparency = clamp(settings.transparency, 40, 92) / 100;
     const intensity = clamp(settings.glassIntensity, 0, 100) / 100;
 
+    // Keep enough neutral density behind text that white webpages do not wash
+    // out the UI. The background remains visible, but typography never relies
+    // on the desktop itself for contrast.
     const windowAlpha = desktopBridge.isTauri
-      ? clamp(0.20 - transparency * 0.13, 0.07, 0.14)
-      : clamp(0.30 - transparency * 0.18, 0.12, 0.22);
+      ? clamp(0.44 - transparency * 0.20, 0.24, 0.34)
+      : clamp(0.46 - transparency * 0.20, 0.26, 0.36);
     const panelAlpha = desktopBridge.isTauri
-      ? clamp(0.50 - transparency * 0.23, 0.26, 0.38)
-      : clamp(0.62 - transparency * 0.28, 0.34, 0.50);
+      ? clamp(0.76 - transparency * 0.24, 0.48, 0.64)
+      : clamp(0.78 - transparency * 0.24, 0.50, 0.66);
     const controlAlpha = desktopBridge.isTauri
-      ? clamp(0.42 - transparency * 0.21, 0.20, 0.32)
-      : clamp(0.50 - transparency * 0.22, 0.28, 0.42);
-    const highlightAlpha = clamp(0.10 + intensity * 0.12, 0.10, 0.22);
+      ? clamp(0.66 - transparency * 0.22, 0.40, 0.56)
+      : clamp(0.68 - transparency * 0.22, 0.42, 0.58);
+    const highlightAlpha = clamp(0.08 + intensity * 0.10, 0.08, 0.18);
 
     root.style.setProperty("--glass-window-alpha", windowAlpha.toFixed(3));
     root.style.setProperty("--glass-panel-alpha", panelAlpha.toFixed(3));

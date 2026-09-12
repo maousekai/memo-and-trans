@@ -27,6 +27,7 @@ export interface AppSettings {
   alwaysOnTop: boolean;
   startWithWindows: boolean;
   launchMinimized: boolean;
+  liquidGlassEnabled: boolean;
   glassIntensity: number;
   blurAmount: number;
   transparency: number;
@@ -49,6 +50,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   alwaysOnTop: true,
   startWithWindows: false,
   launchMinimized: false,
+  liquidGlassEnabled: true,
   glassIntensity: 46,
   blurAmount: 14,
   transparency: 72,
