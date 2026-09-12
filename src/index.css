@@ -19,6 +19,7 @@
   --accent: rgba(143, 211, 235, 0.92);
   --accent-soft: rgba(143, 211, 235, 0.13);
   --accent-border: rgba(143, 211, 235, 0.25);
+  --window-radius: 22px;
 }
 
 html,
@@ -57,6 +58,10 @@ body {
 .lexi-glass-window {
   position: relative;
   isolation: isolate;
+  overflow: hidden;
+  border-radius: var(--window-radius);
+  clip-path: inset(0 round var(--window-radius));
+  background-clip: padding-box;
   background:
     radial-gradient(110% 70% at 5% -8%, rgba(255,255,255,0.11), transparent 38%),
     radial-gradient(68% 42% at 103% 3%, rgba(176,220,240,0.055), transparent 48%),
@@ -100,9 +105,7 @@ body {
   z-index: 1;
 }
 
-/* Reading surfaces are deliberately more opaque than the outer sheet. This is
-   the key contrast fix: background shapes remain visible around cards, but
-   desktop text can no longer show through the vocabulary itself. */
+/* Reading surfaces are deliberately more opaque than the outer sheet. */
 .lexi-glass-panel {
   background:
     linear-gradient(145deg, rgba(255,255,255,0.060), rgba(255,255,255,0.014)),
@@ -150,11 +153,20 @@ body {
 
 /* Native Windows mode
    ------------------------------------------------------------
-   Rust supplies the background diffusion. Do NOT blur the WebView again: a
-   second backdrop-filter is what created the unpleasant fog/soft-text effect.
-   Only the outer tint remains here; inner panels retain their higher contrast. */
+   Rust owns the desktop diffusion and DWM owns the physical rounded HWND.
+   CSS still clips every WebView layer so no square paint can leak outside the
+   visible glass edge. */
+html.tauri-runtime,
+html.tauri-runtime body,
+html.tauri-runtime #root,
 html.tauri-runtime .lexi-app-root {
   background: transparent !important;
+  overflow: hidden !important;
+}
+
+html.tauri-runtime .lexi-app-root {
+  border-radius: var(--window-radius);
+  clip-path: inset(0 round var(--window-radius));
 }
 
 html.tauri-runtime .lexi-glass-window {
@@ -164,7 +176,10 @@ html.tauri-runtime .lexi-glass-window {
   max-height: none !important;
   min-width: 0 !important;
   min-height: 0 !important;
-  border-radius: 20px !important;
+  border-radius: var(--window-radius) !important;
+  overflow: hidden !important;
+  clip-path: inset(0 round var(--window-radius)) !important;
+  background-clip: padding-box !important;
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
   background:
@@ -177,6 +192,21 @@ html.tauri-runtime .lexi-glass-window {
     inset 0 1px 0 rgba(255,255,255,var(--glass-highlight-alpha)),
     inset 1px 0 0 rgba(255,255,255,0.05),
     inset 0 -1px 0 rgba(0,0,0,0.12);
+}
+
+/* Quick Lookup is the only window surface authored with the 400px preview
+   width. Force it to begin at the real top edge in native mode instead of
+   allowing any inherited centering/spacer to create the large dead strip that
+   was visible above the LexiGlass header. */
+html.tauri-runtime .lexi-glass-window[class*="w-[400px]"] {
+  justify-content: flex-start !important;
+  align-items: stretch !important;
+  padding-top: 10px !important;
+  padding-bottom: 10px !important;
+}
+
+html.tauri-runtime .lexi-glass-window[class*="w-[400px]"] > :first-child {
+  margin-top: 0 !important;
 }
 
 html.tauri-runtime .lexi-glass-panel,
