@@ -1,14 +1,28 @@
 export type AppTheme = "auto" | "light" | "dark";
 export type PronunciationAccent = "US" | "UK";
+export type SpeechProvider = "nvidia-magpie" | "system";
 
 export const NVIDIA_MODELS = {
   FAST: "deepseek-ai/deepseek-v4-flash-0731",
   QUALITY: "deepseek-ai/deepseek-v4-pro-0813",
 } as const;
 
+export const NVIDIA_TTS = {
+  MODEL: "nvidia/magpie-tts-multilingual",
+  FUNCTION_ID: "877104f7-e885-42b9-8de8-f6e4c6303969",
+  DEFAULT_VOICE: "Magpie-Multilingual.EN-US.Aria",
+  VOICES: [
+    "Magpie-Multilingual.EN-US.Aria",
+    "Magpie-Multilingual.EN-US.Jason",
+  ],
+} as const;
+
 export interface AppSettings {
   defaultModel: string;
   pronunciationAccent: PronunciationAccent;
+  speechProvider: SpeechProvider;
+  speechVoice: string;
+  speechRate: number;
   globalShortcut: string;
   alwaysOnTop: boolean;
   startWithWindows: boolean;
@@ -26,18 +40,20 @@ export interface AppSettings {
 export const DEFAULT_SETTINGS: AppSettings = {
   defaultModel: NVIDIA_MODELS.FAST,
   pronunciationAccent: "US",
+  // NVIDIA currently exposes MiniMax on NIM as text/reasoning models, not TTS.
+  // Magpie is NVIDIA's hosted speech model and uses the same nvapi key.
+  speechProvider: "nvidia-magpie",
+  speechVoice: NVIDIA_TTS.DEFAULT_VOICE,
+  speechRate: 0.92,
   globalShortcut: "Ctrl + Shift + D",
   alwaysOnTop: true,
   startWithWindows: false,
   launchMinimized: false,
-  // Neutral misted glass by default: visible desktop shapes, readable foreground.
-  glassIntensity: 55,
-  blurAmount: 26,
-  transparency: 80,
+  glassIntensity: 46,
+  blurAmount: 14,
+  transparency: 72,
   animationIntensity: 70,
   theme: "dark",
-  // A small daily new-word budget works better with spaced retrieval than
-  // introducing 10+ words at once.
   dailyNewWordTarget: 5,
   dailyReviewTarget: 25,
   useDemoDataWhenNoKey: true,

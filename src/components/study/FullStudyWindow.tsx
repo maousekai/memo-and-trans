@@ -4,8 +4,10 @@ import { GlassSurface } from "../glass/GlassSurface";
 import { GlassButton } from "../glass/GlassButton";
 import { VocabularyNotebook } from "../vocabulary/VocabularyNotebook";
 import { FlashcardReview } from "../flashcards/FlashcardReview";
+import { StudyAudioControls } from "../flashcards/StudyAudioControls";
 import { StudyDashboard } from "./StudyDashboard";
 import { SettingsPanel } from "../settings/SettingsPanel";
+import { SpeechProviderSettings } from "../settings/SpeechProviderSettings";
 import { BookOpen, Brain, BarChart3, Settings, Minimize2, Pin, X, CheckCircle2 } from "lucide-react";
 
 export const FullStudyWindow: React.FC = () => {
@@ -58,7 +60,7 @@ export const FullStudyWindow: React.FC = () => {
       </div>
 
       <div className="flex-1 flex min-h-0 overflow-hidden">
-        <aside className="w-[180px] min-w-[160px] max-w-[196px] border-r border-white/[0.065] p-3 flex flex-col justify-between select-none flex-shrink-0 bg-white/[0.010]">
+        <aside className="w-[180px] min-w-[160px] max-w-[196px] border-r border-white/[0.065] p-3 flex flex-col justify-between select-none flex-shrink-0 bg-slate-950/[0.13]">
           <nav className="space-y-1.5">
             {sidebarItems.map((item) => {
               const active = studyTab === item.id;
@@ -69,8 +71,8 @@ export const FullStudyWindow: React.FC = () => {
                   onClick={() => store.setStudyTab(item.id)}
                   className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-all border ${
                     active
-                      ? "bg-white/[0.075] text-white border-white/[0.13] shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]"
-                      : "bg-transparent text-slate-400 border-transparent hover:text-slate-200 hover:bg-white/[0.035]"
+                      ? "bg-slate-800/65 text-white border-white/[0.13] shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]"
+                      : "bg-transparent text-slate-400 border-transparent hover:text-slate-200 hover:bg-white/[0.045]"
                   }`}
                   title={item.label}
                 >
@@ -89,7 +91,7 @@ export const FullStudyWindow: React.FC = () => {
           </nav>
 
           <div className="pt-3 border-t border-white/[0.065] space-y-2 text-xs">
-            <div className="p-2.5 rounded-xl bg-white/[0.020] border border-white/[0.065] space-y-1.5">
+            <div className="p-2.5 rounded-xl bg-slate-900/45 border border-white/[0.07] space-y-1.5">
               <div className="flex items-center justify-between text-[11px]">
                 <span className="text-slate-400">Mục tiêu hôm nay</span>
                 <span className="text-slate-200 font-medium">{savedWords.length}/{settings.dailyNewWordTarget}</span>
@@ -103,7 +105,7 @@ export const FullStudyWindow: React.FC = () => {
               <button
                 type="button"
                 onClick={() => store.setStudyTab("flashcards")}
-                className="w-full py-1.5 px-2 rounded-lg bg-white/[0.045] hover:bg-white/[0.075] border border-white/[0.075] text-[11px] text-slate-300 font-medium flex items-center justify-between transition-colors"
+                className="w-full py-1.5 px-2 rounded-lg bg-slate-900/50 hover:bg-slate-800/60 border border-white/[0.08] text-[11px] text-slate-300 font-medium flex items-center justify-between transition-colors"
               >
                 <span>Cần ôn tập</span>
                 <span className="px-1.5 rounded bg-white/[0.10] text-white font-semibold">{dueCount}</span>
@@ -119,9 +121,21 @@ export const FullStudyWindow: React.FC = () => {
 
         <main className="flex-1 min-w-0 min-h-0 h-full overflow-y-auto overflow-x-hidden custom-scrollbar p-4 md:p-5">
           {studyTab === "notebook" && <VocabularyNotebook />}
-          {studyTab === "flashcards" && <FlashcardReview />}
+          {studyTab === "flashcards" && (
+            <div className="h-full min-h-0 flex flex-col gap-2.5">
+              <StudyAudioControls />
+              <div className="flex-1 min-h-0">
+                <FlashcardReview />
+              </div>
+            </div>
+          )}
           {studyTab === "dashboard" && <StudyDashboard />}
-          {studyTab === "settings" && <SettingsPanel />}
+          {studyTab === "settings" && (
+            <div className="space-y-4">
+              <SpeechProviderSettings />
+              <SettingsPanel />
+            </div>
+          )}
         </main>
       </div>
     </GlassSurface>

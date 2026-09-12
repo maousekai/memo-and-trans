@@ -21,11 +21,12 @@ pub fn run() {
             {
                 use window_vibrancy::{apply_acrylic, apply_blur};
 
-                // Keep the native material genuinely translucent. The previous
-                // alpha was dense enough to turn Acrylic into a grey fog once
-                // the WebView painted its own glass layer on top.
-                if apply_acrylic(&window, Some((16, 19, 22, 44))).is_err() {
-                    let _ = apply_blur(&window, Some((16, 19, 22, 32)));
+                // Prefer Windows blur over Acrylic. Acrylic's material tint was
+                // combining with the WebView and creating a foggy sheet that
+                // reduced perceived text contrast. The web UI now supplies the
+                // card depth while this native layer only diffuses the desktop.
+                if apply_blur(&window, Some((17, 23, 31, 20))).is_err() {
+                    let _ = apply_acrylic(&window, Some((17, 23, 31, 30)));
                 }
             }
 
@@ -49,7 +50,8 @@ pub fn run() {
             commands::start_dragging,
             commands::get_api_key_status,
             commands::save_api_key,
-            commands::query_nvidia_nim
+            commands::query_nvidia_nim,
+            commands::synthesize_nvidia_tts
         ])
         .run(tauri::generate_context!())
         .expect("error while running LexiGlass desktop application");

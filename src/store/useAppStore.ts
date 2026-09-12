@@ -11,9 +11,11 @@ import { generateFlashcards, selectSmartCardType } from "../services/fsrs/fsrsEn
 import { wordSuggestionService } from "../services/search/wordSuggestionService";
 
 export type StudyTab = "notebook" | "flashcards" | "dashboard" | "settings";
+type ExpandedWindowMode = Exclude<WindowMode, "bubble">;
 
 interface AppState {
   windowMode: WindowMode;
+  lastExpandedMode: ExpandedWindowMode;
   studyTab: StudyTab;
   isPinned: boolean;
   searchQuery: string;
@@ -35,7 +37,6 @@ interface AppState {
 }
 
 function normalizePersistedSettings(settings: AppSettings): AppSettings {
-  // Migrate previews created before DeepSeek V4 became the default.
   if (!settings.defaultModel || settings.defaultModel.includes("nemotron")) {
     return { ...settings, defaultModel: NVIDIA_MODELS.FAST };
   }
@@ -47,6 +48,7 @@ const initialSettings = normalizePersistedSettings(storageService.getSettings())
 
 let state: AppState = {
   windowMode: "lookup",
+  lastExpandedMode: "lookup",
   studyTab: "notebook",
   isPinned: true,
   searchQuery: "mitigate",
@@ -78,8 +80,6 @@ function updateState(partial: Partial<AppState>) {
   notify();
 }
 
-// FSRS decides WHEN a word is due. The learning engine decides HOW to review it.
-// Never fabricate a review queue when nothing is actually due/new/weak.
 function buildStudyQueue(type: QueueType, words: SavedWord[]): GeneratedFlashcard[] {
   const now = new Date();
   let candidateWords: SavedWord[] = [];
@@ -131,8 +131,6 @@ export const store = {
 
   init: async () => {
     try {
-      // Persist one-time model migration so an old localStorage value cannot
-      // silently switch the project back to Nemotron.
       storageService.saveSettings(state.settings);
 
       const status = await aiService.checkStatus();
@@ -143,14 +141,26 @@ export const store = {
       });
 
       store.setQueueType("due");
+
+      if (state.settings.launchMinimized) {
+        await store.setWindowMode("bubble");
+      }
     } catch {
       // Continue with cached/demo state if desktop or API initialization fails.
     }
   },
 
   setWindowMode: async (mode: WindowMode) => {
-    updateState({ windowMode: mode });
+    if (mode === "bubble") {
+      updateState({ windowMode: mode });
+    } else {
+      updateState({ windowMode: mode, lastExpandedMode: mode });
+    }
     await desktopBridge.setWindowMode(mode);
+  },
+
+  restoreExpandedWindow: async () => {
+    await store.setWindowMode(state.lastExpandedMode || "lookup");
   },
 
   setStudyTab: (tab: StudyTab) => {
