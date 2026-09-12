@@ -4,7 +4,6 @@ import { GlassSearch } from "../glass/GlassSearch";
 import { GlassButton } from "../glass/GlassButton";
 import { store, useAppStore } from "../../store/useAppStore";
 import { wordSuggestionService } from "../../services/search/wordSuggestionService";
-import { desktopBridge } from "../../services/desktop/desktopBridge";
 
 export const DictionaryHeader: React.FC = () => {
   const searchQuery = useAppStore((s) => s.searchQuery);
@@ -27,24 +26,16 @@ export const DictionaryHeader: React.FC = () => {
   };
 
   return (
-    <div className="relative z-30 flex flex-col gap-2.5 pb-2.5 border-b border-white/[0.07]">
-      <div
-        className="flex items-center justify-between text-xs min-h-8 cursor-move"
-        onMouseDown={(event) => {
-          if ((event.target as HTMLElement).closest("button,input")) return;
-          desktopBridge.startDragging();
-        }}
-        title="Giữ và kéo để di chuyển LexiGlass"
-      >
-        <div className="flex items-center gap-2 select-none pointer-events-none">
+    <div className="relative z-30 flex flex-col gap-2.5 pb-2.5 border-b border-white/[0.075]">
+      <div className="flex items-center justify-between text-xs min-h-8 select-none">
+        <div className="flex items-center gap-2 pointer-events-none">
           <span className="w-2 h-2 rounded-full bg-white/70 border border-white/25" />
           <span className="text-sm font-bold tracking-tight text-white font-['Plus_Jakarta_Sans']">
             LexiGlass
           </span>
-          <span className="text-[10px] text-slate-500 hidden sm:inline">Kéo để di chuyển</span>
         </div>
 
-        <div className="flex items-center gap-1 cursor-default">
+        <div className="flex items-center gap-1">
           <GlassButton
             variant="icon"
             size="sm"
