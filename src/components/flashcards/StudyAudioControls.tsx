@@ -2,8 +2,9 @@ import React from "react";
 import { Headphones, MessageSquareText, Volume2 } from "lucide-react";
 import { useAppStore } from "../../store/useAppStore";
 import { speechService } from "../../services/pronunciation/speechService";
+import { GeneratedFlashcard, SavedWord } from "../../types/study";
 
-function getSentenceForCard(card: ReturnType<typeof useCurrentCard>): string | null {
+function getSentenceForCard(card: GeneratedFlashcard | undefined, savedWord?: SavedWord): string | null {
   if (!card) return null;
   if (card.contextSentence) return card.contextSentence;
 
@@ -15,19 +16,25 @@ function getSentenceForCard(card: ReturnType<typeof useCurrentCard>): string | n
     return card.prompt.replace(/_{3,}/g, card.word);
   }
 
-  return null;
-}
+  const dictionaryExample = savedWord?.dictionary.partsOfSpeech
+    .flatMap((part) => part.meanings)
+    .flatMap((meaning) => meaning.examples || [])
+    .find((example) => example.english?.trim());
 
-function useCurrentCard() {
-  const cards = useAppStore((s) => s.studyCards);
-  const activeIndex = useAppStore((s) => s.activeCardIndex);
-  return cards[activeIndex];
+  return dictionaryExample?.english?.trim() || null;
 }
 
 export const StudyAudioControls: React.FC = () => {
-  const currentCard = useCurrentCard();
+  const cards = useAppStore((s) => s.studyCards);
+  const activeIndex = useAppStore((s) => s.activeCardIndex);
+  const savedWords = useAppStore((s) => s.savedWords);
   const settings = useAppStore((s) => s.settings);
-  const sentence = getSentenceForCard(currentCard);
+
+  const currentCard = cards[activeIndex];
+  const savedWord = currentCard
+    ? savedWords.find((word) => word.id === currentCard.wordId)
+    : undefined;
+  const sentence = getSentenceForCard(currentCard, savedWord);
 
   if (!currentCard) return null;
 
@@ -42,7 +49,7 @@ export const StudyAudioControls: React.FC = () => {
           <div className="text-[10px] uppercase tracking-[0.08em] text-slate-500">Nghe trong lúc học</div>
           <div className="text-xs text-slate-200 truncate">
             {currentCard.word}
-            <span className="text-slate-500"> · dùng được cho Ôn tập / Từ mới / Từ cần củng cố</span>
+            <span className="text-slate-500"> · Ôn tập / Từ mới / Từ cần củng cố</span>
           </div>
         </div>
       </div>
@@ -65,7 +72,7 @@ export const StudyAudioControls: React.FC = () => {
             data-no-window-drag
             onClick={() => speechService.speak(sentence, settings.pronunciationAccent)}
             className="h-8 px-2.5 rounded-lg bg-white/[0.07] hover:bg-sky-100/[0.12] border border-white/[0.10] text-slate-200 hover:text-white transition-colors flex items-center gap-1.5 text-[11px]"
-            title="Đọc câu ngữ cảnh"
+            title="Đọc câu ví dụ hoặc câu ngữ cảnh"
           >
             <MessageSquareText className="w-3.5 h-3.5" />
             Câu
