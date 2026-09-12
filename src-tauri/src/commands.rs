@@ -1,4 +1,5 @@
 use crate::security;
+use base64::{engine::general_purpose, Engine as _};
 use serde::Serialize;
 use tauri::{AppHandle, WebviewWindow};
 
@@ -120,4 +121,60 @@ pub async fn query_nvidia_nim(
     };
 
     Ok(cleaned.to_string())
+}
+
+#[tauri::command]
+pub async fn synthesize_nvidia_tts(
+    text: String,
+    language: Option<String>,
+    voice: Option<String>,
+    sample_rate_hz: Option<u32>,
+) -> Result<String, String> {
+    let api_key = security::get_api_key()
+        .map_err(|_| "NVIDIA API key not configured in Windows Credential Manager".to_string())?;
+
+    let clean_text = text.trim();
+    if clean_text.is_empty() {
+        return Err("Speech text cannot be empty".to_string());
+    }
+    if clean_text.chars().count() > 2000 {
+        return Err("NVIDIA speech request is limited to 2000 characters".to_string());
+    }
+
+    let language = language.unwrap_or_else(|| "en-US".to_string());
+    let voice = voice.unwrap_or_else(|| "Magpie-Multilingual.EN-US.Aria".to_string());
+    let sample_rate = sample_rate_hz.unwrap_or(44100).clamp(16000, 48000);
+
+    let form = reqwest::multipart::Form::new()
+        .text("text", clean_text.to_string())
+        .text("language", language)
+        .text("voice", voice)
+        .text("encoding", "LINEAR_PCM")
+        .text("sample_rate_hz", sample_rate.to_string());
+
+    let client = reqwest::Client::new();
+    let resp = client
+        .post("https://877104f7-e885-42b9-8de8-f6e4c6303969.invocation.api.nvcf.nvidia.com/v1/audio/synthesize")
+        .header("Authorization", format!("Bearer {}", api_key))
+        .multipart(form)
+        .send()
+        .await
+        .map_err(|e| format!("NVIDIA speech network request failed: {}", e))?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let err_text = resp.text().await.unwrap_or_default();
+        return Err(format!("NVIDIA speech API error {}: {}", status, err_text));
+    }
+
+    let bytes = resp
+        .bytes()
+        .await
+        .map_err(|e| format!("Failed to read NVIDIA speech audio: {}", e))?;
+
+    if bytes.is_empty() {
+        return Err("NVIDIA speech API returned empty audio".to_string());
+    }
+
+    Ok(general_purpose::STANDARD.encode(bytes))
 }
