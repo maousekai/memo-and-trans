@@ -18,9 +18,6 @@ fn apply_windows_native_frame(window: &WebviewWindow) {
         ) -> i32;
     }
 
-    // Windows 11 native corner + border attributes. Acrylic is applied to the
-    // whole HWND, so CSS border-radius alone cannot hide the square backdrop
-    // corners. Asking DWM to round the HWND clips the native material too.
     const DWMWA_WINDOW_CORNER_PREFERENCE: u32 = 33;
     const DWMWCP_ROUND: u32 = 2;
     const DWMWA_BORDER_COLOR: u32 = 34;
@@ -48,24 +45,14 @@ fn apply_windows_native_frame(window: &WebviewWindow) {
 }
 
 #[cfg(target_os = "windows")]
-pub(crate) fn apply_windows_glass(window: &WebviewWindow) {
-    use window_vibrancy::{apply_acrylic, apply_blur};
-
-    // Keep the native frame rounded every time DWM recreates the composition
-    // surface during focus, resize or drag transitions.
-    apply_windows_native_frame(window);
-
-    // Acrylic is the supported Windows 10/11 path. Keep the tint very light so
-    // the web layer controls readability without turning the app into fog.
-    if apply_acrylic(window, Some((17, 23, 31, 14))).is_err() {
-        let _ = apply_blur(window, Some((17, 23, 31, 10)));
-    }
-}
-
-#[cfg(target_os = "windows")]
-pub(crate) fn clear_windows_glass(window: &WebviewWindow) {
+pub(crate) fn maintain_windows_transparent_frame(window: &WebviewWindow) {
     use window_vibrancy::{clear_acrylic, clear_blur};
 
+    // Acrylic changes its visual state when the window gains focus on recent
+    // Windows 11 builds. That was the reason LexiGlass became noticeably foggy
+    // the moment the user clicked into it. Keep the native backdrop fully clear
+    // and let the WebView's own translucent layers provide the glass tint and
+    // reflections. This makes focused and unfocused states visually identical.
     let _ = clear_acrylic(window);
     let _ = clear_blur(window);
     apply_windows_native_frame(window);
@@ -88,15 +75,12 @@ pub fn run() {
             {
                 use tauri::WindowEvent;
 
-                apply_windows_glass(&window);
+                maintain_windows_transparent_frame(&window);
 
                 let event_window = window.clone();
                 window.on_window_event(move |event| match event {
-                    WindowEvent::Focused(true) | WindowEvent::Resized(_) => {
-                        apply_windows_glass(&event_window);
-                    }
-                    WindowEvent::Focused(false) => {
-                        clear_windows_glass(&event_window);
+                    WindowEvent::Focused(_) | WindowEvent::Resized(_) => {
+                        maintain_windows_transparent_frame(&event_window);
                     }
                     _ => {}
                 });
