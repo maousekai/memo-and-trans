@@ -29,7 +29,7 @@ pub async fn set_window_size(window: WebviewWindow, width: f64, height: f64) -> 
         .map_err(|e| format!("Failed to set window size: {}", e))?;
 
     #[cfg(target_os = "windows")]
-    crate::apply_windows_glass(&window);
+    crate::maintain_windows_transparent_frame(&window);
 
     Ok(())
 }
@@ -40,11 +40,8 @@ pub async fn start_dragging(window: WebviewWindow) -> Result<(), String> {
         .start_dragging()
         .map_err(|e| format!("Failed to start window drag: {}", e))?;
 
-    // DWM can recreate the composition surface during a native drag. Refresh
-    // the Acrylic policy immediately after the move operation returns so the
-    // effect remains visible while the window is stationary too.
     #[cfg(target_os = "windows")]
-    crate::apply_windows_glass(&window);
+    crate::maintain_windows_transparent_frame(&window);
 
     Ok(())
 }
