@@ -1,6 +1,7 @@
 import React, { useEffect } from "react";
 import { useAppStore, store } from "./store/useAppStore";
 import { desktopBridge } from "./services/desktop/desktopBridge";
+import { speechService } from "./services/pronunciation/speechService";
 import { FloatingBubble } from "./components/layout/FloatingBubble";
 import { QuickLookup } from "./components/dictionary/QuickLookup";
 import { FullStudyWindow } from "./components/study/FullStudyWindow";
@@ -79,28 +80,34 @@ export default function App() {
     };
   }, []);
 
-  // Keep the WebView itself very clear. Windows Acrylic already performs the
-  // native blur, so the React layer should add only a thin tint/specular skin.
+  // The native layer owns background diffusion. The web layer provides a
+  // lightly tinted outer sheet plus substantially more readable inner panels.
+  // This keeps desktop shapes visible without letting background text bleed
+  // through every card and compete with vocabulary text.
   useEffect(() => {
     const root = document.documentElement;
     const transparency = clamp(settings.transparency, 40, 92) / 100;
     const intensity = clamp(settings.glassIntensity, 0, 100) / 100;
 
-    const windowAlpha = clamp(0.19 - transparency * 0.16, 0.035, 0.105);
-    const panelAlpha = clamp(0.03 + (1 - transparency) * 0.07, 0.03, 0.085);
-    const controlAlpha = clamp(0.05 + (1 - transparency) * 0.085, 0.05, 0.115);
-    const highlightAlpha = clamp(0.12 + intensity * 0.14, 0.12, 0.26);
+    const windowAlpha = clamp(0.30 - transparency * 0.18, 0.12, 0.22);
+    const panelAlpha = clamp(0.62 - transparency * 0.28, 0.34, 0.50);
+    const controlAlpha = clamp(0.50 - transparency * 0.22, 0.28, 0.42);
+    const highlightAlpha = clamp(0.10 + intensity * 0.12, 0.10, 0.22);
 
     root.style.setProperty("--glass-window-alpha", windowAlpha.toFixed(3));
     root.style.setProperty("--glass-panel-alpha", panelAlpha.toFixed(3));
     root.style.setProperty("--glass-control-alpha", controlAlpha.toFixed(3));
     root.style.setProperty("--glass-highlight-alpha", highlightAlpha.toFixed(3));
-    root.style.setProperty("--glass-blur", `${clamp(settings.blurAmount, 10, 28)}px`);
+    root.style.setProperty("--glass-blur", `${clamp(settings.blurAmount, 6, 20)}px`);
   }, [
     settings.transparency,
     settings.glassIntensity,
     settings.blurAmount,
   ]);
+
+  useEffect(() => {
+    speechService.configure(settings);
+  }, [settings.speechProvider, settings.speechVoice, settings.speechRate]);
 
   const handleWindowPointerDownCapture = (event: React.PointerEvent<HTMLDivElement>) => {
     if (!desktopBridge.isTauri || event.button !== 0 || !event.isPrimary) return;
@@ -139,7 +146,7 @@ export default function App() {
       <div className={nativeHostClass}>
         {windowMode === "bubble" && (
           <div className={desktopBridge.isTauri ? "w-full h-full flex items-center justify-center" : ""}>
-            <FloatingBubble onExpand={() => store.setWindowMode("lookup")} />
+            <FloatingBubble onExpand={() => store.restoreExpandedWindow()} />
           </div>
         )}
 
