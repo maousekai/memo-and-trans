@@ -2,20 +2,19 @@
 
 /* LexiGlass optical system
    ------------------------------------------------------------
-   The desktop behind the app should be perceived as soft shapes and light,
-   never as readable competing text. The outer sheet stays translucent while
-   content cards use a stronger cool-gray tint so foreground typography remains
-   crisp. */
+   The foreground must stay readable regardless of the desktop behind it.
+   Liquid Glass therefore uses a dark neutral optical base and can dynamically
+   increase its density when the native Windows sampler sees a bright page. */
 :root {
-  --glass-window-alpha: 0.30;
-  --glass-panel-alpha: 0.56;
-  --glass-control-alpha: 0.48;
+  --glass-window-alpha: 0.56;
+  --glass-panel-alpha: 0.70;
+  --glass-control-alpha: 0.62;
   --glass-blur: 14px;
   --glass-highlight-alpha: 0.13;
   --glass-border: rgba(236, 246, 255, 0.22);
   --glass-border-soft: rgba(235, 245, 255, 0.13);
   --text-primary: rgba(252, 253, 255, 0.99);
-  --text-secondary: rgba(222, 232, 243, 0.90);
+  --text-secondary: rgba(228, 236, 246, 0.94);
   --accent: rgba(143, 211, 235, 0.96);
   --accent-soft: rgba(143, 211, 235, 0.13);
   --accent-border: rgba(143, 211, 235, 0.25);
@@ -47,7 +46,7 @@ body {
     linear-gradient(135deg, #202a33 0%, #121920 47%, #26313a 100%);
 }
 
-/* Outer glass sheet: restrained tint, soft cool highlights, no neon bloom. */
+/* Outer glass sheet: dark optical base, cool edge reflections, no neon bloom. */
 .lexi-glass-window {
   position: relative;
   isolation: isolate;
@@ -56,19 +55,19 @@ body {
   clip-path: inset(0 round var(--window-radius));
   background-clip: padding-box;
   background:
-    radial-gradient(110% 70% at 5% -8%, rgba(255,255,255,0.085), transparent 38%),
-    radial-gradient(68% 42% at 103% 3%, rgba(176,220,240,0.045), transparent 48%),
-    linear-gradient(145deg, rgba(242,248,255,0.040), rgba(212,229,241,0.014) 45%, rgba(190,214,230,0.022)),
-    rgb(10 16 23 / var(--glass-window-alpha));
-  backdrop-filter: blur(var(--glass-blur)) saturate(106%) brightness(0.98);
-  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(106%) brightness(0.98);
+    radial-gradient(110% 70% at 5% -8%, rgba(255,255,255,0.080), transparent 38%),
+    radial-gradient(68% 42% at 103% 3%, rgba(176,220,240,0.040), transparent 48%),
+    linear-gradient(145deg, rgba(242,248,255,0.034), rgba(212,229,241,0.012) 45%, rgba(190,214,230,0.018)),
+    rgb(7 12 18 / var(--glass-window-alpha));
+  backdrop-filter: blur(var(--glass-blur)) saturate(104%) brightness(0.94);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(104%) brightness(0.94);
   border: 1px solid var(--glass-border);
   box-shadow:
     inset 0 1px 0 rgba(255,255,255,var(--glass-highlight-alpha)),
-    inset 1px 0 0 rgba(255,255,255,0.045),
-    inset 0 -1px 0 rgba(0,0,0,0.14),
-    0 16px 42px -28px rgba(0,0,0,0.52);
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.52);
+    inset 1px 0 0 rgba(255,255,255,0.040),
+    inset 0 -1px 0 rgba(0,0,0,0.20),
+    0 16px 42px -28px rgba(0,0,0,0.60);
+  text-shadow: none;
 }
 
 .lexi-glass-window::before {
@@ -79,9 +78,9 @@ body {
   pointer-events: none;
   z-index: 0;
   background:
-    linear-gradient(116deg, rgba(255,255,255,0.095), rgba(255,255,255,0.012) 18%, transparent 34%),
-    radial-gradient(44% 11% at 52% 0%, rgba(255,255,255,0.075), transparent 78%);
-  opacity: 0.65;
+    linear-gradient(116deg, rgba(255,255,255,0.080), rgba(255,255,255,0.010) 18%, transparent 34%),
+    radial-gradient(44% 11% at 52% 0%, rgba(255,255,255,0.065), transparent 78%);
+  opacity: 0.58;
 }
 
 .lexi-glass-window::after {
@@ -91,7 +90,7 @@ body {
   border-radius: inherit;
   pointer-events: none;
   z-index: 0;
-  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.025);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.024);
 }
 
 .lexi-glass-window > * {
@@ -99,65 +98,62 @@ body {
   z-index: 1;
 }
 
-/* Reading surfaces are deliberately more opaque than the outer sheet. */
 .lexi-glass-panel {
   background:
-    linear-gradient(145deg, rgba(255,255,255,0.040), rgba(255,255,255,0.010)),
-    rgb(18 26 35 / var(--glass-panel-alpha));
+    linear-gradient(145deg, rgba(255,255,255,0.034), rgba(255,255,255,0.008)),
+    rgb(13 20 28 / var(--glass-panel-alpha));
   border: 1px solid var(--glass-border-soft);
   box-shadow:
-    inset 0 1px 0 rgba(255,255,255,0.07),
-    inset 0 -1px 0 rgba(0,0,0,0.16),
-    0 10px 26px -24px rgba(0,0,0,0.58);
+    inset 0 1px 0 rgba(255,255,255,0.065),
+    inset 0 -1px 0 rgba(0,0,0,0.20),
+    0 10px 26px -24px rgba(0,0,0,0.64);
 }
 
 .lexi-glass-control {
   background:
-    linear-gradient(150deg, rgba(255,255,255,0.045), rgba(255,255,255,0.010)),
-    rgb(20 29 39 / var(--glass-control-alpha));
+    linear-gradient(150deg, rgba(255,255,255,0.040), rgba(255,255,255,0.008)),
+    rgb(16 24 33 / var(--glass-control-alpha));
   border: 1px solid rgba(238,247,255,0.14);
   box-shadow:
-    inset 0 1px 0 rgba(255,255,255,0.085),
-    0 7px 20px -18px rgba(0,0,0,0.62);
+    inset 0 1px 0 rgba(255,255,255,0.080),
+    0 7px 20px -18px rgba(0,0,0,0.66);
 }
 
 .lexi-glass-bubble {
   background:
-    radial-gradient(86% 62% at 28% 13%, rgba(255,255,255,0.13), transparent 52%),
-    linear-gradient(145deg, rgba(255,255,255,0.060), rgba(220,236,246,0.014)),
-    rgba(15, 23, 32, 0.52);
-  backdrop-filter: blur(10px) saturate(105%) brightness(0.98);
-  -webkit-backdrop-filter: blur(10px) saturate(105%) brightness(0.98);
+    radial-gradient(86% 62% at 28% 13%, rgba(255,255,255,0.12), transparent 52%),
+    linear-gradient(145deg, rgba(255,255,255,0.050), rgba(220,236,246,0.012)),
+    rgba(10, 16, 23, 0.72);
+  backdrop-filter: blur(10px) saturate(104%) brightness(0.96);
+  -webkit-backdrop-filter: blur(10px) saturate(104%) brightness(0.96);
   border: 1px solid rgba(245,250,255,0.25);
   box-shadow:
-    inset 0 1px 0 rgba(255,255,255,0.20),
-    inset 1px 0 0 rgba(255,255,255,0.06),
-    0 10px 28px -18px rgba(0,0,0,0.58);
+    inset 0 1px 0 rgba(255,255,255,0.18),
+    inset 1px 0 0 rgba(255,255,255,0.05),
+    0 10px 28px -18px rgba(0,0,0,0.66);
 }
 
 .lexi-suggestion-popover {
-  background: rgba(17, 24, 33, 0.92);
+  background: rgba(10, 15, 22, 0.96);
   backdrop-filter: blur(10px) saturate(104%);
   -webkit-backdrop-filter: blur(10px) saturate(104%);
   border: 1px solid rgba(242,248,255,0.15);
   box-shadow:
-    inset 0 1px 0 rgba(255,255,255,0.09),
-    0 14px 34px -22px rgba(0,0,0,0.68);
+    inset 0 1px 0 rgba(255,255,255,0.08),
+    0 14px 34px -22px rgba(0,0,0,0.72);
 }
 
-/* Make secondary copy readable even when the app is floating over a white web
-   page. The text stays light, but a subtle dark optical edge keeps glyphs crisp
-   without looking outlined. */
-html.tauri-runtime .lexi-glass-window .text-slate-200 { color: rgba(244,248,252,0.96) !important; }
-html.tauri-runtime .lexi-glass-window .text-slate-300 { color: rgba(229,237,246,0.94) !important; }
-html.tauri-runtime .lexi-glass-window .text-slate-400 { color: rgba(205,218,233,0.90) !important; }
-html.tauri-runtime .lexi-glass-window .text-slate-500 { color: rgba(177,193,211,0.82) !important; }
+/* Native text is intentionally brighter than Tailwind's default slate palette.
+   The dark adaptive surface provides the contrast, so no fuzzy text-shadow is
+   necessary. */
+html.tauri-runtime .lexi-glass-window .text-slate-100 { color: rgba(252,253,255,0.99) !important; }
+html.tauri-runtime .lexi-glass-window .text-slate-200 { color: rgba(247,250,253,0.98) !important; }
+html.tauri-runtime .lexi-glass-window .text-slate-300 { color: rgba(235,242,249,0.96) !important; }
+html.tauri-runtime .lexi-glass-window .text-slate-400 { color: rgba(216,227,239,0.93) !important; }
+html.tauri-runtime .lexi-glass-window .text-slate-500 { color: rgba(190,205,221,0.88) !important; }
 
 /* Native Windows mode
-   ------------------------------------------------------------
-   The native HWND stays genuinely transparent in both focused and unfocused
-   states. The WebView owns the stable tint/reflection layers while DWM only
-   owns the physical rounded frame. */
+   ------------------------------------------------------------ */
 html.tauri-runtime,
 html.tauri-runtime body,
 html.tauri-runtime #root,
@@ -185,18 +181,17 @@ html.tauri-runtime .lexi-glass-window {
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
   background:
-    radial-gradient(110% 68% at 5% -8%, rgba(255,255,255,0.070), transparent 36%),
-    radial-gradient(66% 42% at 103% 2%, rgba(178,220,240,0.030), transparent 46%),
-    linear-gradient(145deg, rgba(240,248,255,0.025), rgba(220,235,246,0.008) 48%, rgba(196,218,232,0.012)),
-    rgb(8 14 21 / var(--glass-window-alpha));
+    radial-gradient(110% 68% at 5% -8%, rgba(255,255,255,0.060), transparent 36%),
+    radial-gradient(66% 42% at 103% 2%, rgba(178,220,240,0.026), transparent 46%),
+    linear-gradient(145deg, rgba(240,248,255,0.020), rgba(220,235,246,0.006) 48%, rgba(196,218,232,0.010)),
+    rgb(5 10 16 / var(--glass-window-alpha));
   border-color: rgba(239,247,255,0.18);
   box-shadow:
     inset 0 1px 0 rgba(255,255,255,var(--glass-highlight-alpha)),
-    inset 1px 0 0 rgba(255,255,255,0.04),
-    inset 0 -1px 0 rgba(0,0,0,0.14);
+    inset 1px 0 0 rgba(255,255,255,0.035),
+    inset 0 -1px 0 rgba(0,0,0,0.18);
 }
 
-/* Native lookup is anchored to the real client-area origin. */
 html.tauri-runtime .lexi-native-lookup-host {
   position: absolute !important;
   inset: 0 !important;
@@ -228,16 +223,66 @@ html.tauri-runtime .lexi-glass-control {
   -webkit-backdrop-filter: none !important;
 }
 
+/* Adaptive contrast ---------------------------------------------------------
+   Windows samples pixels immediately outside the overlay. Bright surroundings
+   get an almost-black glass base; dark surroundings can stay more transparent.
+   Only the background layers change — text/icons are never faded. */
+html.liquid-glass-enabled.adaptive-background-light .lexi-glass-window {
+  background:
+    radial-gradient(100% 58% at 8% -4%, rgba(255,255,255,0.050), transparent 38%),
+    linear-gradient(145deg, rgba(210,230,244,0.014), transparent 48%),
+    rgba(5, 8, 12, 0.92) !important;
+  border-color: rgba(242,248,255,0.22) !important;
+}
+
+html.liquid-glass-enabled.adaptive-background-light .lexi-glass-panel {
+  background: rgba(10, 15, 21, 0.94) !important;
+  border-color: rgba(242,248,255,0.12) !important;
+}
+
+html.liquid-glass-enabled.adaptive-background-light .lexi-glass-control {
+  background: rgba(15, 21, 29, 0.93) !important;
+  border-color: rgba(242,248,255,0.14) !important;
+}
+
+html.liquid-glass-enabled.adaptive-background-medium .lexi-glass-window {
+  background:
+    radial-gradient(100% 58% at 8% -4%, rgba(255,255,255,0.060), transparent 38%),
+    linear-gradient(145deg, rgba(210,230,244,0.018), transparent 48%),
+    rgba(6, 10, 15, 0.84) !important;
+}
+
+html.liquid-glass-enabled.adaptive-background-medium .lexi-glass-panel {
+  background: rgba(11, 17, 24, 0.90) !important;
+}
+
+html.liquid-glass-enabled.adaptive-background-medium .lexi-glass-control {
+  background: rgba(16, 23, 31, 0.88) !important;
+}
+
+html.liquid-glass-enabled.adaptive-background-dark .lexi-glass-window {
+  background:
+    radial-gradient(100% 58% at 8% -4%, rgba(255,255,255,0.070), transparent 38%),
+    linear-gradient(145deg, rgba(210,230,244,0.020), transparent 48%),
+    rgba(7, 12, 18, 0.72) !important;
+}
+
+html.liquid-glass-enabled.adaptive-background-dark .lexi-glass-panel {
+  background: rgba(13, 20, 28, 0.82) !important;
+}
+
+html.liquid-glass-enabled.adaptive-background-dark .lexi-glass-control {
+  background: rgba(18, 26, 35, 0.80) !important;
+}
+
 /* Solid mode --------------------------------------------------
-   This is the user's explicit "Tắt Liquid Glass" mode. It keeps all layout,
-   rounded corners and typography, but removes transparency/reflections and
-   replaces the glass with a stable high-contrast dark surface. */
+   Clicking the Layers button disables Liquid Glass entirely. */
 html.liquid-glass-disabled .lexi-glass-window {
-  background: #111821 !important;
+  background: #070b10 !important;
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
-  border-color: rgba(255,255,255,0.11) !important;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.045) !important;
+  border-color: rgba(255,255,255,0.12) !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.04) !important;
   text-shadow: none !important;
 }
 
@@ -247,26 +292,26 @@ html.liquid-glass-disabled .lexi-glass-window::after {
 }
 
 html.liquid-glass-disabled .lexi-glass-panel {
-  background: #18212c !important;
+  background: #0e151d !important;
   border-color: rgba(255,255,255,0.09) !important;
   box-shadow: none !important;
 }
 
 html.liquid-glass-disabled .lexi-glass-control {
-  background: #202a35 !important;
+  background: #151e28 !important;
   border-color: rgba(255,255,255,0.10) !important;
   box-shadow: none !important;
 }
 
 html.liquid-glass-disabled .lexi-glass-bubble {
-  background: #18212c !important;
+  background: #0e151d !important;
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
-  box-shadow: 0 10px 28px -18px rgba(0,0,0,0.72) !important;
+  box-shadow: 0 10px 28px -18px rgba(0,0,0,0.76) !important;
 }
 
 html.liquid-glass-disabled .lexi-suggestion-popover {
-  background: #18212c !important;
+  background: #0e151d !important;
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
 }
@@ -290,7 +335,7 @@ html.liquid-glass-disabled .lexi-suggestion-popover {
 }
 
 @media (prefers-reduced-transparency: reduce) {
-  .lexi-glass-window { --glass-window-alpha: 0.58; }
-  .lexi-glass-panel { --glass-panel-alpha: 0.72; }
-  .lexi-glass-control { --glass-control-alpha: 0.66; }
+  .lexi-glass-window { --glass-window-alpha: 0.82; }
+  .lexi-glass-panel { --glass-panel-alpha: 0.90; }
+  .lexi-glass-control { --glass-control-alpha: 0.88; }
 }

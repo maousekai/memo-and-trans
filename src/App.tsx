@@ -1,7 +1,8 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import { useAppStore, store } from "./store/useAppStore";
 import { desktopBridge } from "./services/desktop/desktopBridge";
 import { speechService } from "./services/pronunciation/speechService";
+import { BackgroundTone } from "./types/desktop";
 import { FloatingBubble } from "./components/layout/FloatingBubble";
 import { QuickLookup } from "./components/dictionary/QuickLookup";
 import { FullStudyWindow } from "./components/study/FullStudyWindow";
@@ -51,6 +52,7 @@ function isScrollbarHit(target: HTMLElement, clientX: number, clientY: number) {
 export default function App() {
   const windowMode = useAppStore((s) => s.windowMode);
   const settings = useAppStore((s) => s.settings);
+  const [backgroundTone, setBackgroundTone] = useState<BackgroundTone>("light");
 
   useEffect(() => {
     store.init();
@@ -91,22 +93,64 @@ export default function App() {
   }, [settings.liquidGlassEnabled]);
 
   useEffect(() => {
+    if (!settings.liquidGlassEnabled || windowMode === "bubble") return;
+
+    let cancelled = false;
+    let lastTone: BackgroundTone | null = null;
+
+    const sample = async () => {
+      const result = await desktopBridge.sampleBackgroundTone();
+      if (cancelled) return;
+      if (result.tone !== lastTone) {
+        lastTone = result.tone;
+        setBackgroundTone(result.tone);
+      }
+    };
+
+    void sample();
+    const timer = window.setInterval(sample, 900);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [settings.liquidGlassEnabled, windowMode]);
+
+  useEffect(() => {
+    const root = document.documentElement;
+    const adaptive = settings.liquidGlassEnabled;
+
+    root.classList.toggle("adaptive-contrast", adaptive);
+    root.classList.toggle("adaptive-background-light", adaptive && backgroundTone === "light");
+    root.classList.toggle("adaptive-background-medium", adaptive && backgroundTone === "medium");
+    root.classList.toggle("adaptive-background-dark", adaptive && backgroundTone === "dark");
+
+    return () => {
+      root.classList.remove(
+        "adaptive-contrast",
+        "adaptive-background-light",
+        "adaptive-background-medium",
+        "adaptive-background-dark",
+      );
+    };
+  }, [settings.liquidGlassEnabled, backgroundTone]);
+
+  useEffect(() => {
     const root = document.documentElement;
     const transparency = clamp(settings.transparency, 40, 92) / 100;
     const intensity = clamp(settings.glassIntensity, 0, 100) / 100;
 
-    // Keep enough neutral density behind text that white webpages do not wash
-    // out the UI. The background remains visible, but typography never relies
-    // on the desktop itself for contrast.
+    // Base glass remains intentionally dark. Adaptive classes below can push it
+    // even darker when the native sampler sees a bright page behind LexiGlass.
     const windowAlpha = desktopBridge.isTauri
-      ? clamp(0.44 - transparency * 0.20, 0.24, 0.34)
-      : clamp(0.46 - transparency * 0.20, 0.26, 0.36);
+      ? clamp(0.72 - transparency * 0.20, 0.50, 0.62)
+      : clamp(0.68 - transparency * 0.18, 0.48, 0.60);
     const panelAlpha = desktopBridge.isTauri
-      ? clamp(0.76 - transparency * 0.24, 0.48, 0.64)
-      : clamp(0.78 - transparency * 0.24, 0.50, 0.66);
+      ? clamp(0.86 - transparency * 0.18, 0.64, 0.76)
+      : clamp(0.84 - transparency * 0.18, 0.62, 0.74);
     const controlAlpha = desktopBridge.isTauri
-      ? clamp(0.66 - transparency * 0.22, 0.40, 0.56)
-      : clamp(0.68 - transparency * 0.22, 0.42, 0.58);
+      ? clamp(0.78 - transparency * 0.18, 0.56, 0.68)
+      : clamp(0.76 - transparency * 0.18, 0.54, 0.66);
     const highlightAlpha = clamp(0.08 + intensity * 0.10, 0.08, 0.18);
 
     root.style.setProperty("--glass-window-alpha", windowAlpha.toFixed(3));

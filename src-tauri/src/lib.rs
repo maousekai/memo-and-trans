@@ -49,10 +49,8 @@ pub(crate) fn maintain_windows_transparent_frame(window: &WebviewWindow) {
     use window_vibrancy::{clear_acrylic, clear_blur};
 
     // Acrylic changes its visual state when the window gains focus on recent
-    // Windows 11 builds. That was the reason LexiGlass became noticeably foggy
-    // the moment the user clicked into it. Keep the native backdrop fully clear
-    // and let the WebView's own translucent layers provide the glass tint and
-    // reflections. This makes focused and unfocused states visually identical.
+    // Windows 11 builds. Keep the native backdrop clear and let the WebView own
+    // tint/contrast so focused and unfocused states stay visually consistent.
     let _ = clear_acrylic(window);
     let _ = clear_blur(window);
     apply_windows_native_frame(window);
@@ -104,6 +102,7 @@ pub fn run() {
             commands::set_always_on_top,
             commands::set_window_size,
             commands::start_dragging,
+            commands::sample_background_tone,
             commands::get_api_key_status,
             commands::save_api_key,
             commands::query_nvidia_nim,
