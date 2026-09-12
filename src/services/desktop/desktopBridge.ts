@@ -79,7 +79,7 @@ export class TauriDesktopBridge implements DesktopBridge {
       ? { width: 72, height: 72 }
       : mode === "study"
         ? { width: 960, height: 680 }
-        : { width: 430, height: 580 };
+        : { width: 440, height: 620 };
 
     try {
       await invokeNative("set_window_size", size);
