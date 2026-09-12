@@ -2,7 +2,7 @@ import { useSyncExternalStore } from "react";
 import { DictionaryEntry } from "../types/dictionary";
 import { SavedWord, QueueType, GeneratedFlashcard, FSRSRating, StudyDashboardStats } from "../types/study";
 import { WindowMode } from "../types/desktop";
-import { AppSettings, NVIDIA_MODELS } from "../types/settings";
+import { AppSettings, DEFAULT_SETTINGS, NVIDIA_MODELS } from "../types/settings";
 import { storageService } from "../services/database/storageService";
 import { aiService } from "../services/ai/nvidiaProvider";
 import { desktopBridge, BrowserDesktopBridge } from "../services/desktop/desktopBridge";
@@ -37,10 +37,11 @@ interface AppState {
 }
 
 function normalizePersistedSettings(settings: AppSettings): AppSettings {
-  if (!settings.defaultModel || settings.defaultModel.includes("nemotron")) {
-    return { ...settings, defaultModel: NVIDIA_MODELS.FAST };
+  const merged: AppSettings = { ...DEFAULT_SETTINGS, ...settings };
+  if (!merged.defaultModel || merged.defaultModel.includes("nemotron")) {
+    merged.defaultModel = NVIDIA_MODELS.FAST;
   }
-  return settings;
+  return merged;
 }
 
 const initialWord = DEMO_DICTIONARY_ENTRIES["mitigate"];
@@ -249,7 +250,7 @@ export const store = {
   },
 
   updateSettings: (newSettings: Partial<AppSettings>) => {
-    const merged = { ...state.settings, ...newSettings };
+    const merged = normalizePersistedSettings({ ...state.settings, ...newSettings });
     storageService.saveSettings(merged);
     updateState({ settings: merged });
   },
