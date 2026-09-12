@@ -80,18 +80,24 @@ export default function App() {
     };
   }, []);
 
-  // The native layer owns background diffusion. The web layer provides a
-  // lightly tinted outer sheet plus substantially more readable inner panels.
-  // This keeps desktop shapes visible without letting background text bleed
-  // through every card and compete with vocabulary text.
+  // Native Acrylic owns the desktop diffusion. Keep the WebView tint light
+  // enough that the stationary window still looks like glass, then use the
+  // reading cards for contrast. Browser preview uses slightly denser values
+  // because it does not have a real desktop backdrop underneath it.
   useEffect(() => {
     const root = document.documentElement;
     const transparency = clamp(settings.transparency, 40, 92) / 100;
     const intensity = clamp(settings.glassIntensity, 0, 100) / 100;
 
-    const windowAlpha = clamp(0.30 - transparency * 0.18, 0.12, 0.22);
-    const panelAlpha = clamp(0.62 - transparency * 0.28, 0.34, 0.50);
-    const controlAlpha = clamp(0.50 - transparency * 0.22, 0.28, 0.42);
+    const windowAlpha = desktopBridge.isTauri
+      ? clamp(0.20 - transparency * 0.13, 0.07, 0.14)
+      : clamp(0.30 - transparency * 0.18, 0.12, 0.22);
+    const panelAlpha = desktopBridge.isTauri
+      ? clamp(0.50 - transparency * 0.23, 0.26, 0.38)
+      : clamp(0.62 - transparency * 0.28, 0.34, 0.50);
+    const controlAlpha = desktopBridge.isTauri
+      ? clamp(0.42 - transparency * 0.21, 0.20, 0.32)
+      : clamp(0.50 - transparency * 0.22, 0.28, 0.42);
     const highlightAlpha = clamp(0.10 + intensity * 0.12, 0.10, 0.22);
 
     root.style.setProperty("--glass-window-alpha", windowAlpha.toFixed(3));
