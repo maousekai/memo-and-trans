@@ -7,7 +7,6 @@ import { FlashcardReview } from "../flashcards/FlashcardReview";
 import { StudyDashboard } from "./StudyDashboard";
 import { SettingsPanel } from "../settings/SettingsPanel";
 import { BookOpen, Brain, BarChart3, Settings, Minimize2, Pin, X, CheckCircle2 } from "lucide-react";
-import { desktopBridge } from "../../services/desktop/desktopBridge";
 
 export const FullStudyWindow: React.FC = () => {
   const studyTab = useAppStore((s) => s.studyTab);
@@ -36,14 +35,7 @@ export const FullStudyWindow: React.FC = () => {
       variant="window"
       className="w-[min(960px,calc(100vw-2rem))] h-[min(680px,calc(100vh-2rem))] min-w-0 min-h-0 flex flex-col select-text overflow-hidden"
     >
-      <div
-        className="h-11 px-4 border-b border-white/[0.07] flex items-center justify-between select-none flex-shrink-0 cursor-move"
-        onMouseDown={(event) => {
-          if ((event.target as HTMLElement).closest("button,input,select,textarea")) return;
-          desktopBridge.startDragging();
-        }}
-        title="Giữ và kéo để di chuyển LexiGlass"
-      >
+      <div className="h-11 px-4 border-b border-white/[0.075] flex items-center justify-between select-none flex-shrink-0">
         <div className="flex items-center gap-2 min-w-0 pointer-events-none">
           <span className="w-2 h-2 rounded-full bg-white/70 border border-white/25 flex-shrink-0" />
           <span className="text-sm font-bold tracking-tight text-white font-['Plus_Jakarta_Sans']">LexiGlass</span>
@@ -52,7 +44,7 @@ export const FullStudyWindow: React.FC = () => {
 
         <div className="flex-1 h-full mx-4" />
 
-        <div className="flex items-center gap-1 flex-shrink-0 cursor-default">
+        <div className="flex items-center gap-1 flex-shrink-0">
           <GlassButton variant="icon" size="sm" tooltip="Về Tra từ nhanh" onClick={() => store.setWindowMode("lookup")}>
             <Minimize2 className="w-3.5 h-3.5 text-slate-300" />
           </GlassButton>
@@ -66,7 +58,7 @@ export const FullStudyWindow: React.FC = () => {
       </div>
 
       <div className="flex-1 flex min-h-0 overflow-hidden">
-        <aside className="w-[180px] min-w-[160px] max-w-[196px] border-r border-white/[0.07] p-3 flex flex-col justify-between select-none flex-shrink-0 bg-white/[0.018]">
+        <aside className="w-[180px] min-w-[160px] max-w-[196px] border-r border-white/[0.065] p-3 flex flex-col justify-between select-none flex-shrink-0 bg-white/[0.010]">
           <nav className="space-y-1.5">
             {sidebarItems.map((item) => {
               const active = studyTab === item.id;
@@ -77,8 +69,8 @@ export const FullStudyWindow: React.FC = () => {
                   onClick={() => store.setStudyTab(item.id)}
                   className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-all border ${
                     active
-                      ? "bg-white/[0.10] text-white border-white/[0.13] shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]"
-                      : "bg-transparent text-slate-400 border-transparent hover:text-slate-200 hover:bg-white/[0.045]"
+                      ? "bg-white/[0.075] text-white border-white/[0.13] shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]"
+                      : "bg-transparent text-slate-400 border-transparent hover:text-slate-200 hover:bg-white/[0.035]"
                   }`}
                   title={item.label}
                 >
@@ -87,7 +79,7 @@ export const FullStudyWindow: React.FC = () => {
                     <span className="truncate whitespace-nowrap">{item.label}</span>
                   </div>
                   {item.badge !== undefined && (
-                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold ml-1.5 flex-shrink-0 ${active ? "bg-white/[0.13] text-white" : "bg-white/[0.07] text-slate-400"}`}>
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold ml-1.5 flex-shrink-0 ${active ? "bg-white/[0.11] text-white" : "bg-white/[0.055] text-slate-400"}`}>
                       {item.badge}
                     </span>
                   )}
@@ -96,13 +88,13 @@ export const FullStudyWindow: React.FC = () => {
             })}
           </nav>
 
-          <div className="pt-3 border-t border-white/[0.07] space-y-2 text-xs">
-            <div className="p-2.5 rounded-xl bg-white/[0.028] border border-white/[0.065] space-y-1.5">
+          <div className="pt-3 border-t border-white/[0.065] space-y-2 text-xs">
+            <div className="p-2.5 rounded-xl bg-white/[0.020] border border-white/[0.065] space-y-1.5">
               <div className="flex items-center justify-between text-[11px]">
                 <span className="text-slate-400">Mục tiêu hôm nay</span>
                 <span className="text-slate-200 font-medium">{savedWords.length}/{settings.dailyNewWordTarget}</span>
               </div>
-              <div className="w-full h-1.5 rounded-full bg-white/[0.07] overflow-hidden">
+              <div className="w-full h-1.5 rounded-full bg-white/[0.06] overflow-hidden">
                 <div className="h-full bg-slate-300/70 rounded-full transition-all duration-300" style={{ width: `${todayProgress}%` }} />
               </div>
             </div>
@@ -111,10 +103,10 @@ export const FullStudyWindow: React.FC = () => {
               <button
                 type="button"
                 onClick={() => store.setStudyTab("flashcards")}
-                className="w-full py-1.5 px-2 rounded-lg bg-white/[0.055] hover:bg-white/[0.085] border border-white/[0.08] text-[11px] text-slate-300 font-medium flex items-center justify-between transition-colors"
+                className="w-full py-1.5 px-2 rounded-lg bg-white/[0.045] hover:bg-white/[0.075] border border-white/[0.075] text-[11px] text-slate-300 font-medium flex items-center justify-between transition-colors"
               >
                 <span>Cần ôn tập</span>
-                <span className="px-1.5 rounded bg-white/[0.11] text-white font-semibold">{dueCount}</span>
+                <span className="px-1.5 rounded bg-white/[0.10] text-white font-semibold">{dueCount}</span>
               </button>
             ) : (
               <div className="flex items-center gap-1.5 text-[11px] text-emerald-300/75 px-2 py-1">

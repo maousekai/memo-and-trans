@@ -10,6 +10,43 @@ function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
 
+const NON_DRAG_SELECTOR = [
+  "button",
+  "input",
+  "textarea",
+  "select",
+  "option",
+  "a",
+  "label",
+  "summary",
+  "[role='button']",
+  "[role='link']",
+  "[contenteditable='true']",
+  "[data-no-window-drag]",
+].join(",");
+
+function isScrollbarHit(target: HTMLElement, clientX: number, clientY: number) {
+  let element: HTMLElement | null = target;
+
+  while (element) {
+    const rect = element.getBoundingClientRect();
+    const verticalScrollable = element.scrollHeight > element.clientHeight + 1;
+    const horizontalScrollable = element.scrollWidth > element.clientWidth + 1;
+
+    if (verticalScrollable && clientX >= rect.right - 14 && clientX <= rect.right + 1) {
+      return true;
+    }
+
+    if (horizontalScrollable && clientY >= rect.bottom - 14 && clientY <= rect.bottom + 1) {
+      return true;
+    }
+
+    element = element.parentElement;
+  }
+
+  return false;
+}
+
 export default function App() {
   const windowMode = useAppStore((s) => s.windowMode);
   const settings = useAppStore((s) => s.settings);
@@ -32,31 +69,64 @@ export default function App() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
-  // Settings now control the actual material instead of being decorative UI.
-  // Higher "transparency" means lower painted alpha, while text contrast stays
-  // unchanged. Native Acrylic is provided by Tauri underneath this layer.
+  useEffect(() => {
+    const root = document.documentElement;
+    root.classList.toggle("tauri-runtime", desktopBridge.isTauri);
+    root.classList.toggle("browser-preview-runtime", !desktopBridge.isTauri);
+
+    return () => {
+      root.classList.remove("tauri-runtime", "browser-preview-runtime");
+    };
+  }, []);
+
+  // Keep the WebView itself very clear. Windows Acrylic already performs the
+  // native blur, so the React layer should add only a thin tint/specular skin.
   useEffect(() => {
     const root = document.documentElement;
     const transparency = clamp(settings.transparency, 40, 92) / 100;
     const intensity = clamp(settings.glassIntensity, 0, 100) / 100;
-    const windowAlpha = clamp(0.43 - transparency * 0.34, 0.11, 0.29);
-    const panelAlpha = clamp(0.045 + (1 - transparency) * 0.12, 0.045, 0.13);
-    const controlAlpha = clamp(0.065 + (1 - transparency) * 0.14, 0.065, 0.16);
-    const highlightAlpha = clamp(0.065 + intensity * 0.075, 0.065, 0.14);
+
+    const windowAlpha = clamp(0.19 - transparency * 0.16, 0.035, 0.105);
+    const panelAlpha = clamp(0.03 + (1 - transparency) * 0.07, 0.03, 0.085);
+    const controlAlpha = clamp(0.05 + (1 - transparency) * 0.085, 0.05, 0.115);
+    const highlightAlpha = clamp(0.12 + intensity * 0.14, 0.12, 0.26);
 
     root.style.setProperty("--glass-window-alpha", windowAlpha.toFixed(3));
     root.style.setProperty("--glass-panel-alpha", panelAlpha.toFixed(3));
     root.style.setProperty("--glass-control-alpha", controlAlpha.toFixed(3));
     root.style.setProperty("--glass-highlight-alpha", highlightAlpha.toFixed(3));
-    root.style.setProperty("--glass-blur", `${clamp(settings.blurAmount, 8, 40)}px`);
+    root.style.setProperty("--glass-blur", `${clamp(settings.blurAmount, 10, 28)}px`);
   }, [
     settings.transparency,
     settings.glassIntensity,
     settings.blurAmount,
   ]);
 
+  const handleWindowPointerDownCapture = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (!desktopBridge.isTauri || event.button !== 0 || !event.isPrimary) return;
+
+    const target = event.target as HTMLElement | null;
+    if (!target) return;
+    if (target.closest(NON_DRAG_SELECTOR)) return;
+    if (isScrollbarHit(target, event.clientX, event.clientY)) return;
+
+    event.preventDefault();
+    void desktopBridge.startDragging();
+  };
+
+  const nativeHostClass = desktopBridge.isTauri
+    ? "relative z-40 w-full h-full flex items-stretch justify-stretch p-0"
+    : "relative z-40 transition-all duration-300 ease-out flex items-center justify-center p-4";
+
+  const nativeViewClass = desktopBridge.isTauri
+    ? "w-full h-full"
+    : "animate-in fade-in zoom-in-95 duration-200";
+
   return (
-    <div className="relative w-screen h-screen overflow-hidden flex items-center justify-center font-sans antialiased text-slate-100">
+    <div
+      className="lexi-app-root relative w-screen h-screen overflow-hidden flex items-center justify-center font-sans antialiased text-slate-100"
+      onPointerDownCapture={handleWindowPointerDownCapture}
+    >
       {!desktopBridge.isTauri ? (
         <>
           <div className="absolute inset-0 lexi-preview-wallpaper" />
@@ -66,19 +136,21 @@ export default function App() {
         <div className="absolute inset-0 bg-transparent pointer-events-none" />
       )}
 
-      <div className="relative z-40 transition-all duration-300 ease-out flex items-center justify-center p-4">
+      <div className={nativeHostClass}>
         {windowMode === "bubble" && (
-          <FloatingBubble onExpand={() => store.setWindowMode("lookup")} />
+          <div className={desktopBridge.isTauri ? "w-full h-full flex items-center justify-center" : ""}>
+            <FloatingBubble onExpand={() => store.setWindowMode("lookup")} />
+          </div>
         )}
 
         {windowMode === "lookup" && (
-          <div className="animate-in fade-in zoom-in-95 duration-200">
+          <div className={nativeViewClass}>
             <QuickLookup />
           </div>
         )}
 
         {windowMode === "study" && (
-          <div className="animate-in fade-in zoom-in-95 duration-200">
+          <div className={nativeViewClass}>
             <FullStudyWindow />
           </div>
         )}

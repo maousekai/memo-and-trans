@@ -1,21 +1,22 @@
 @import "tailwindcss";
 
-/* LexiGlass material tokens. Keep the material neutral: accent color is for
-   interaction, not for tinting every surface. Values are adjusted at runtime
-   from Settings in App.tsx. */
+/* LexiGlass material system
+   ------------------------------------------------------------
+   Native Windows Acrylic is the blur layer. The web layer is deliberately
+   thin and clear so it reads as glass instead of grey fog. */
 :root {
-  --glass-window-alpha: 0.18;
-  --glass-panel-alpha: 0.075;
-  --glass-control-alpha: 0.095;
-  --glass-blur: 26px;
-  --glass-highlight-alpha: 0.11;
-  --glass-border: rgba(255, 255, 255, 0.13);
-  --glass-border-soft: rgba(255, 255, 255, 0.085);
-  --text-primary: rgba(247, 249, 252, 0.96);
-  --text-secondary: rgba(210, 217, 225, 0.72);
-  --accent: rgba(154, 203, 217, 0.90);
-  --accent-soft: rgba(154, 203, 217, 0.12);
-  --accent-border: rgba(154, 203, 217, 0.24);
+  --glass-window-alpha: 0.075;
+  --glass-panel-alpha: 0.045;
+  --glass-control-alpha: 0.070;
+  --glass-blur: 20px;
+  --glass-highlight-alpha: 0.20;
+  --glass-border: rgba(255, 255, 255, 0.20);
+  --glass-border-soft: rgba(255, 255, 255, 0.105);
+  --text-primary: rgba(248, 250, 252, 0.97);
+  --text-secondary: rgba(218, 225, 233, 0.76);
+  --accent: rgba(111, 211, 237, 0.92);
+  --accent-soft: rgba(111, 211, 237, 0.12);
+  --accent-border: rgba(111, 211, 237, 0.24);
 }
 
 html,
@@ -24,64 +25,140 @@ body,
   width: 100%;
   height: 100%;
   margin: 0;
+  padding: 0;
   background: transparent !important;
+  overflow: hidden;
 }
 
 body {
   color: var(--text-primary);
 }
 
-/* Used only in browser preview so transparency can be judged against a real
-   looking surface. The native Tauri window remains completely transparent. */
+/* Browser-only scene used to judge translucency. */
 .lexi-preview-wallpaper {
   background:
-    radial-gradient(70% 55% at 18% 20%, rgba(153, 170, 184, 0.22), transparent 72%),
-    radial-gradient(65% 50% at 82% 75%, rgba(100, 117, 130, 0.18), transparent 74%),
-    linear-gradient(135deg, #20262c 0%, #151a1f 48%, #252b31 100%);
+    radial-gradient(62% 48% at 18% 18%, rgba(132, 163, 184, 0.32), transparent 72%),
+    radial-gradient(58% 48% at 82% 76%, rgba(97, 120, 139, 0.24), transparent 76%),
+    linear-gradient(135deg, #1c252c 0%, #10161b 48%, #212a31 100%);
 }
 
+/* Main optical glass. Keep the center clear and concentrate brightness at
+   edges/highlights, which avoids the "smoky acrylic sheet" appearance. */
 .lexi-glass-window {
+  position: relative;
+  isolation: isolate;
   background:
-    linear-gradient(145deg, rgba(255,255,255,0.035), rgba(255,255,255,0.008)),
-    rgb(20 23 26 / var(--glass-window-alpha));
-  backdrop-filter: blur(var(--glass-blur)) saturate(108%) brightness(1.04);
-  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(108%) brightness(1.04);
+    radial-gradient(120% 80% at 8% -8%, rgba(255,255,255,0.105), transparent 38%),
+    radial-gradient(80% 60% at 102% 6%, rgba(186,232,244,0.050), transparent 42%),
+    linear-gradient(145deg, rgba(255,255,255,0.045), rgba(255,255,255,0.010) 45%, rgba(255,255,255,0.026)),
+    rgb(13 17 20 / var(--glass-window-alpha));
+  backdrop-filter: blur(var(--glass-blur)) saturate(122%) brightness(1.055);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(122%) brightness(1.055);
   border: 1px solid var(--glass-border);
   box-shadow:
     inset 0 1px 0 rgba(255,255,255,var(--glass-highlight-alpha)),
-    inset 0 -1px 0 rgba(255,255,255,0.025),
-    0 18px 48px -20px rgba(0,0,0,0.58);
+    inset 1px 0 0 rgba(255,255,255,0.055),
+    inset 0 -1px 0 rgba(255,255,255,0.035),
+    0 20px 54px -28px rgba(0,0,0,0.55);
+}
+
+.lexi-glass-window::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background:
+    linear-gradient(112deg, rgba(255,255,255,0.13) 0%, rgba(255,255,255,0.02) 13%, transparent 31%),
+    radial-gradient(56% 17% at 50% 0%, rgba(255,255,255,0.105), transparent 76%),
+    radial-gradient(22% 44% at 100% 48%, rgba(157,225,241,0.035), transparent 72%);
+  opacity: 0.82;
+}
+
+.lexi-glass-window::after {
+  content: "";
+  position: absolute;
+  inset: 1px;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow:
+    inset 0 0 0 1px rgba(255,255,255,0.025),
+    inset 0 10px 24px -24px rgba(255,255,255,0.45);
 }
 
 .lexi-glass-panel {
-  background: rgb(255 255 255 / var(--glass-panel-alpha));
+  background:
+    linear-gradient(145deg, rgba(255,255,255,0.028), rgba(255,255,255,0.006)),
+    rgb(255 255 255 / var(--glass-panel-alpha));
   border: 1px solid var(--glass-border-soft);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.055);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.075),
+    inset 0 -1px 0 rgba(0,0,0,0.045);
 }
 
 .lexi-glass-control {
-  background: rgb(255 255 255 / var(--glass-control-alpha));
-  border: 1px solid var(--glass-border-soft);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.075);
+  background:
+    linear-gradient(150deg, rgba(255,255,255,0.045), rgba(255,255,255,0.009)),
+    rgb(255 255 255 / var(--glass-control-alpha));
+  border: 1px solid rgba(255,255,255,0.115);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.095),
+    0 6px 18px -16px rgba(0,0,0,0.7);
 }
 
 .lexi-glass-bubble {
   background:
-    linear-gradient(145deg, rgba(255,255,255,0.07), rgba(255,255,255,0.015)),
-    rgb(20 23 26 / 0.22);
-  backdrop-filter: blur(var(--glass-blur)) saturate(108%);
-  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(108%);
-  border: 1px solid rgba(255,255,255,0.16);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.14), 0 10px 30px -14px rgba(0,0,0,0.62);
+    radial-gradient(90% 70% at 28% 15%, rgba(255,255,255,0.16), transparent 50%),
+    linear-gradient(145deg, rgba(255,255,255,0.075), rgba(255,255,255,0.012)),
+    rgba(16, 20, 23, 0.10);
+  backdrop-filter: blur(18px) saturate(126%) brightness(1.05);
+  -webkit-backdrop-filter: blur(18px) saturate(126%) brightness(1.05);
+  border: 1px solid rgba(255,255,255,0.22);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.22),
+    inset 1px 0 0 rgba(255,255,255,0.07),
+    0 12px 28px -18px rgba(0,0,0,0.58);
 }
 
-/* Compact frosted autocomplete menu. */
 .lexi-suggestion-popover {
-  background: rgba(28, 31, 34, 0.56);
-  backdrop-filter: blur(28px) saturate(106%);
-  -webkit-backdrop-filter: blur(28px) saturate(106%);
-  border: 1px solid rgba(255,255,255,0.12);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), 0 16px 36px -18px rgba(0,0,0,0.7);
+  background: rgba(19, 23, 26, 0.34);
+  backdrop-filter: blur(18px) saturate(120%);
+  -webkit-backdrop-filter: blur(18px) saturate(120%);
+  border: 1px solid rgba(255,255,255,0.14);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.09),
+    0 16px 36px -22px rgba(0,0,0,0.68);
+}
+
+/* Native Tauri mode
+   ------------------------------------------------------------
+   Windows Acrylic already blurs what is behind the application. Applying a
+   second CSS blur is what made the previous build look like a sheet of fog.
+   Native windows are therefore edge-to-edge, with only a clear optical skin. */
+html.tauri-runtime .lexi-app-root {
+  background: transparent !important;
+}
+
+html.tauri-runtime .lexi-glass-window {
+  width: 100vw !important;
+  height: 100vh !important;
+  max-width: none !important;
+  max-height: none !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  border-radius: 20px !important;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  background:
+    radial-gradient(120% 74% at 6% -7%, rgba(255,255,255,0.095), transparent 36%),
+    radial-gradient(72% 48% at 102% 8%, rgba(180,231,244,0.040), transparent 45%),
+    linear-gradient(145deg, rgba(255,255,255,0.034), rgba(255,255,255,0.006) 48%, rgba(255,255,255,0.020)),
+    rgb(10 13 16 / var(--glass-window-alpha));
+  border-color: rgba(255,255,255,0.18);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,var(--glass-highlight-alpha)),
+    inset 1px 0 0 rgba(255,255,255,0.05),
+    inset 0 -1px 0 rgba(255,255,255,0.035);
 }
 
 .custom-scrollbar::-webkit-scrollbar {
@@ -90,17 +167,17 @@ body {
 }
 .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
 .custom-scrollbar::-webkit-scrollbar-thumb {
-  background: rgba(255,255,255,0.13);
+  background: rgba(255,255,255,0.15);
   border-radius: 9999px;
 }
-.custom-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.23); }
+.custom-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.26); }
 
 ::selection {
-  background-color: rgba(154,203,217,0.24);
+  background-color: rgba(111,211,237,0.25);
   color: white;
 }
 
 @media (prefers-reduced-transparency: reduce) {
-  .lexi-glass-window { --glass-window-alpha: 0.74; }
-  .lexi-glass-panel { --glass-panel-alpha: 0.13; }
+  .lexi-glass-window { --glass-window-alpha: 0.62; }
+  .lexi-glass-panel { --glass-panel-alpha: 0.12; }
 }

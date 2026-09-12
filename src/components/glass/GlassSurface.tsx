@@ -18,27 +18,26 @@ export const GlassSurface: React.FC<GlassSurfaceProps> = ({
 
   switch (variant) {
     case "window":
-      variantStyles = "lexi-glass-window rounded-[24px]";
+      variantStyles = "lexi-glass-window rounded-[20px]";
       break;
     case "card":
       variantStyles = "lexi-glass-panel rounded-[16px]";
       break;
     case "control":
-      variantStyles = "lexi-glass-control hover:bg-white/[0.11] active:bg-white/[0.14] rounded-[12px] transition-colors";
+      variantStyles = "lexi-glass-control hover:bg-white/[0.10] active:bg-white/[0.13] rounded-[12px] transition-colors";
       break;
     case "floating":
       variantStyles = "lexi-glass-bubble rounded-full";
       break;
     case "inset":
-      variantStyles = "bg-white/[0.035] border border-white/[0.07] rounded-[12px]";
+      variantStyles = "bg-white/[0.025] border border-white/[0.075] rounded-[12px]";
       break;
   }
 
   return (
     <div className={`relative overflow-hidden ${variantStyles} ${className}`} {...props}>
-      <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/10 to-transparent" />
       {glow && (
-        <div className="pointer-events-none absolute -top-10 left-1/2 -translate-x-1/2 w-52 h-16 bg-white/[0.018] blur-3xl rounded-full" />
+        <div className="pointer-events-none absolute -top-12 left-[12%] w-40 h-16 bg-white/[0.025] blur-3xl rounded-full" />
       )}
       {children}
     </div>
