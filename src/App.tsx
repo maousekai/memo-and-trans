@@ -80,10 +80,6 @@ export default function App() {
     };
   }, []);
 
-  // Native Acrylic owns the desktop diffusion. Keep the WebView tint light
-  // enough that the stationary window still looks like glass, then use the
-  // reading cards for contrast. Browser preview uses slightly denser values
-  // because it does not have a real desktop backdrop underneath it.
   useEffect(() => {
     const root = document.documentElement;
     const transparency = clamp(settings.transparency, 40, 92) / 100;
@@ -128,11 +124,11 @@ export default function App() {
   };
 
   const nativeHostClass = desktopBridge.isTauri
-    ? "relative z-40 w-full h-full flex items-stretch justify-stretch p-0"
+    ? "absolute inset-0 z-40 p-0 overflow-hidden"
     : "relative z-40 transition-all duration-300 ease-out flex items-center justify-center p-4";
 
   const nativeViewClass = desktopBridge.isTauri
-    ? "w-full h-full"
+    ? "absolute inset-0 w-full h-full"
     : "animate-in fade-in zoom-in-95 duration-200";
 
   return (
@@ -157,7 +153,7 @@ export default function App() {
         )}
 
         {windowMode === "lookup" && (
-          <div className={nativeViewClass}>
+          <div className={`${nativeViewClass} ${desktopBridge.isTauri ? "lexi-native-lookup-host" : ""}`}>
             <QuickLookup />
           </div>
         )}
