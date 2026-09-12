@@ -1,4 +1,4 @@
-import { DesktopBridge, WindowMode, WindowPosition } from "../../types/desktop";
+import { BackgroundSample, DesktopBridge, WindowMode, WindowPosition } from "../../types/desktop";
 import { invokeNative, isTauriRuntime } from "./tauriInvoke";
 
 const POS_KEY = "lexiglass_window_position";
@@ -46,6 +46,10 @@ export class BrowserDesktopBridge implements DesktopBridge {
       // Browser/iframe may deny clipboard access.
     }
     return this.simulatedClipboardText;
+  }
+
+  async sampleBackgroundTone(): Promise<BackgroundSample> {
+    return { tone: "medium", luminance: 0.42, samples: 0 };
   }
 
   setSimulatedClipboardText(text: string) { this.simulatedClipboardText = text; }
@@ -121,6 +125,15 @@ export class TauriDesktopBridge implements DesktopBridge {
     } catch (error) {
       console.warn("Native selected-text capture failed:", error);
       return null;
+    }
+  }
+
+  async sampleBackgroundTone(): Promise<BackgroundSample> {
+    try {
+      return await invokeNative<BackgroundSample>("sample_background_tone");
+    } catch (error) {
+      console.warn("Background tone sampling failed:", error);
+      return { tone: "light", luminance: 0.75, samples: 0 };
     }
   }
 
