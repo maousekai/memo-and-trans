@@ -9,6 +9,13 @@ pub struct KeyStatus {
     pub storage_type: String,
 }
 
+#[derive(Serialize)]
+pub struct BackgroundSample {
+    pub tone: String,
+    pub luminance: f64,
+    pub samples: usize,
+}
+
 #[tauri::command]
 pub async fn get_selected_text(_app: AppHandle) -> Result<String, String> {
     log::info!("Capturing selected text on user trigger");
@@ -44,6 +51,126 @@ pub async fn start_dragging(window: WebviewWindow) -> Result<(), String> {
     crate::maintain_windows_transparent_frame(&window);
 
     Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn sample_windows_background(window: &WebviewWindow) -> Result<BackgroundSample, String> {
+    #[link(name = "user32")]
+    extern "system" {
+        fn GetDC(hwnd: isize) -> isize;
+        fn ReleaseDC(hwnd: isize, hdc: isize) -> i32;
+    }
+
+    #[link(name = "gdi32")]
+    extern "system" {
+        fn GetPixel(hdc: isize, x: i32, y: i32) -> u32;
+    }
+
+    const CLR_INVALID: u32 = 0xFFFF_FFFF;
+
+    let position = window
+        .outer_position()
+        .map_err(|e| format!("Failed to read window position: {}", e))?;
+    let size = window
+        .outer_size()
+        .map_err(|e| format!("Failed to read window size: {}", e))?;
+
+    let left = position.x;
+    let top = position.y;
+    let width = size.width as i32;
+    let height = size.height as i32;
+    let right = left.saturating_add(width);
+    let bottom = top.saturating_add(height);
+    let gap = 10;
+
+    // Sample just outside the app so the pixels represent the page/desktop that
+    // LexiGlass is floating over instead of LexiGlass itself. Points around all
+    // four sides also work when the app is close to a monitor edge.
+    let points = [
+        (left - gap, top + height / 4),
+        (left - gap, top + height / 2),
+        (left - gap, top + height * 3 / 4),
+        (right + gap, top + height / 4),
+        (right + gap, top + height / 2),
+        (right + gap, top + height * 3 / 4),
+        (left + width / 4, top - gap),
+        (left + width / 2, top - gap),
+        (left + width * 3 / 4, top - gap),
+        (left + width / 4, bottom + gap),
+        (left + width / 2, bottom + gap),
+        (left + width * 3 / 4, bottom + gap),
+    ];
+
+    let hdc = unsafe { GetDC(0) };
+    if hdc == 0 {
+        return Ok(BackgroundSample {
+            tone: "light".to_string(),
+            luminance: 0.75,
+            samples: 0,
+        });
+    }
+
+    let mut luminance_sum = 0.0_f64;
+    let mut valid_samples = 0_usize;
+
+    for (x, y) in points {
+        let color = unsafe { GetPixel(hdc, x, y) };
+        if color == CLR_INVALID {
+            continue;
+        }
+
+        let r = (color & 0xFF) as f64 / 255.0;
+        let g = ((color >> 8) & 0xFF) as f64 / 255.0;
+        let b = ((color >> 16) & 0xFF) as f64 / 255.0;
+        let luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+        luminance_sum += luminance;
+        valid_samples += 1;
+    }
+
+    unsafe {
+        ReleaseDC(0, hdc);
+    }
+
+    if valid_samples == 0 {
+        return Ok(BackgroundSample {
+            tone: "light".to_string(),
+            luminance: 0.75,
+            samples: 0,
+        });
+    }
+
+    let luminance = luminance_sum / valid_samples as f64;
+    let tone = if luminance >= 0.62 {
+        "light"
+    } else if luminance >= 0.30 {
+        "medium"
+    } else {
+        "dark"
+    };
+
+    Ok(BackgroundSample {
+        tone: tone.to_string(),
+        luminance,
+        samples: valid_samples,
+    })
+}
+
+#[tauri::command]
+pub async fn sample_background_tone(window: WebviewWindow) -> Result<BackgroundSample, String> {
+    #[cfg(target_os = "windows")]
+    {
+        return sample_windows_background(&window);
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = window;
+        Ok(BackgroundSample {
+            tone: "medium".to_string(),
+            luminance: 0.42,
+            samples: 0,
+        })
+    }
 }
 
 #[tauri::command]
