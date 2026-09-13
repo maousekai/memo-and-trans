@@ -1,10 +1,10 @@
 import type { DictionaryEntry, PartOfSpeech } from "../../types/dictionary";
 import { DEMO_DICTIONARY_ENTRIES } from "../../data/demoEntries";
 import {
-  OFFLINE_DICTIONARY_5000,
-  OFFLINE_DICTIONARY_5000_COUNT,
-  OFFLINE_DICTIONARY_ALIASES,
-} from "../../data/offlineDictionary5000.generated";
+  OFFLINE_DICTIONARY_10000,
+  OFFLINE_DICTIONARY_10000_COUNT,
+  OFFLINE_DICTIONARY_10000_ALIASES,
+} from "../../data/offlineDictionary10000.generated";
 
 interface CoreWord {
   pos: string;
@@ -22,6 +22,7 @@ interface OfflinePackedPart {
   v: string[];
   e: string[];
   f: string[];
+  x?: Array<[string, string]>;
 }
 
 const FAST_CACHE_PREFIX = "lexiglass_fast_dict_cache_";
@@ -148,25 +149,27 @@ function coreToEntry(word: string, core: CoreWord): DictionaryEntry {
 }
 
 function offlineToEntry(requestedWord: string): DictionaryEntry | null {
-  const baseWord = OFFLINE_DICTIONARY_5000[requestedWord]
+  const baseWord = OFFLINE_DICTIONARY_10000[requestedWord]
     ? requestedWord
-    : OFFLINE_DICTIONARY_ALIASES[requestedWord];
+    : OFFLINE_DICTIONARY_10000_ALIASES[requestedWord];
   if (!baseWord) return null;
 
-  const packed = OFFLINE_DICTIONARY_5000[baseWord] as OfflinePackedPart[] | undefined;
+  const packed = OFFLINE_DICTIONARY_10000[baseWord] as OfflinePackedPart[] | undefined;
   if (!packed?.length) return null;
 
-  const partsOfSpeech: PartOfSpeech[] = packed.map((part) => {
+  const partsOfSpeech: PartOfSpeech[] = packed.map((part, partIndex) => {
     const senseCount = Math.max(part.v?.length || 0, part.e?.length || 0, 1);
     return {
       type: normalizePos(part.p),
       forms: Array.isArray(part.f) ? part.f : [],
-      meanings: Array.from({ length: Math.min(3, senseCount) }, (_, index) => ({
+      meanings: Array.from({ length: Math.min(4, senseCount) }, (_, index) => ({
         vietnamese: part.v?.[index] || part.v?.[0] || "",
         englishDefinition: part.e?.[index] || part.e?.[0] || "",
         register: null,
         context: null,
-        examples: [],
+        examples: partIndex === 0 && index === 0 && Array.isArray(part.x)
+          ? part.x.slice(0, 2).map(([english, vietnamese]) => ({ english, vietnamese }))
+          : [],
         collocations: [],
       })).filter((meaning) => meaning.vietnamese || meaning.englishDefinition),
     };
@@ -248,7 +251,7 @@ async function fetchWithTimeout(url: string, timeoutMs: number): Promise<Respons
 }
 
 export const localDictionaryService = {
-  offlineCount: OFFLINE_DICTIONARY_5000_COUNT,
+  offlineCount: OFFLINE_DICTIONARY_10000_COUNT,
 
   lookupInstant(rawWord: string): DictionaryEntry | null {
     const word = normalizeWord(rawWord);
