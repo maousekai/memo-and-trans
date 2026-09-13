@@ -122,7 +122,7 @@ export class NvidiaNIMProvider implements AIProvider {
     await invokeNative("save_api_key", { key: key.trim() });
   }
 
-  async testConnection(): Promise<void> {
+  async testConnection(_model = DEFAULT_MODEL): Promise<void> {
     if (!isTauriRuntime()) throw new Error("Kiểm tra kết nối native chỉ khả dụng trong bản Desktop.");
     const raw = await invokeNative<string>("query_nvidia_nim", {
       model: FAST_LOOKUP_MODEL,
