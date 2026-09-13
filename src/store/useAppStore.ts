@@ -9,8 +9,10 @@ import { desktopBridge, BrowserDesktopBridge } from "../services/desktop/desktop
 import { DEMO_DICTIONARY_ENTRIES } from "../data/demoEntries";
 import { generateFlashcards, selectSmartCardType } from "../services/fsrs/fsrsEngine";
 import { wordSuggestionService } from "../services/search/wordSuggestionService";
+import { localDictionaryService } from "../services/dictionary/localDictionaryService";
 
 export type StudyTab = "notebook" | "flashcards" | "dashboard" | "settings";
+export type LookupSource = "cache" | "saved" | "local" | "public" | "ai" | "demo" | null;
 type ExpandedWindowMode = Exclude<WindowMode, "bubble">;
 
 interface AppState {
@@ -21,6 +23,8 @@ interface AppState {
   searchQuery: string;
   currentEntry: DictionaryEntry | null;
   isLoading: boolean;
+  isEnriching: boolean;
+  lookupSource: LookupSource;
   error: string | null;
   isDemoEntry: boolean;
   savedWords: SavedWord[];
@@ -44,6 +48,37 @@ function normalizePersistedSettings(settings: AppSettings): AppSettings {
   return merged;
 }
 
+function normalizeLookupWord(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+function readAiCache(word: string): DictionaryEntry | null {
+  try {
+    const raw = localStorage.getItem(`lexiglass_dict_cache_${normalizeLookupWord(word)}`);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as DictionaryEntry;
+    return parsed?.partsOfSpeech?.length ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function withDeadline<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = window.setTimeout(() => reject(new Error(`AI enrichment exceeded ${timeoutMs}ms budget`)), timeoutMs);
+    promise.then(
+      (value) => {
+        window.clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        window.clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
+
 const initialWord = DEMO_DICTIONARY_ENTRIES["mitigate"];
 const initialSettings = normalizePersistedSettings(storageService.getSettings());
 
@@ -55,6 +90,8 @@ let state: AppState = {
   searchQuery: "mitigate",
   currentEntry: initialWord,
   isLoading: false,
+  isEnriching: false,
+  lookupSource: "demo",
   error: null,
   isDemoEntry: true,
   savedWords: storageService.getAllWords(),
@@ -71,6 +108,7 @@ let state: AppState = {
 };
 
 const listeners = new Set<() => void>();
+let searchGeneration = 0;
 
 function notify() {
   listeners.forEach((listener) => listener());
@@ -178,28 +216,130 @@ export const store = {
     updateState({ searchQuery: query });
   },
 
+  prefetchWord: (rawWord: string) => {
+    const word = normalizeLookupWord(rawWord);
+    if (word.length < 3 || word.includes(" ")) return;
+    if (readAiCache(word) || localDictionaryService.lookupInstant(word)) return;
+    localDictionaryService.prefetch(word);
+  },
+
   searchWord: async (rawWord: string, forceRefresh = false) => {
     const word = rawWord.trim();
     if (!word) return;
 
-    updateState({ isLoading: true, error: null, searchQuery: word });
+    const generation = ++searchGeneration;
+    const normalized = normalizeLookupWord(word);
+    const startedAt = performance.now();
 
-    try {
-      const entry = await aiService.lookupWord(word, state.settings.defaultModel, forceRefresh);
-      const isDemo = Boolean(DEMO_DICTIONARY_ENTRIES[entry.normalizedWord.toLowerCase()]);
-      wordSuggestionService.recordSuccessfulSearch(entry.normalizedWord);
-      updateState({
-        currentEntry: entry,
-        isLoading: false,
-        error: null,
-        isDemoEntry: isDemo,
-      });
-    } catch (err: any) {
-      updateState({
-        isLoading: false,
-        error: err.message || "Không thể tra cứu từ vựng.",
-      });
+    const saved = state.savedWords.find(
+      (item) => (item.normalizedWord || item.word).toLowerCase() === normalized,
+    );
+    const cached = forceRefresh ? null : readAiCache(normalized);
+    const local = forceRefresh ? null : localDictionaryService.lookupInstant(normalized);
+    const instantEntry = cached || saved?.dictionary || local;
+    const instantSource: LookupSource = cached
+      ? "cache"
+      : saved?.dictionary
+        ? "saved"
+        : local
+          ? (DEMO_DICTIONARY_ENTRIES[normalized] ? "demo" : "local")
+          : null;
+
+    updateState({
+      isLoading: !instantEntry,
+      isEnriching: Boolean(instantEntry && state.aiStatus.configured),
+      error: null,
+      searchQuery: word,
+      currentEntry: instantEntry || state.currentEntry,
+      lookupSource: instantSource,
+      isDemoEntry: instantSource === "demo",
+    });
+
+    if (instantEntry) {
+      wordSuggestionService.recordSuccessfulSearch(instantEntry.normalizedWord);
     }
+
+    // Start non-NVIDIA dictionary and AI in parallel. The public dictionary is
+    // intentionally given a very small latency budget so the UI never waits on it.
+    const publicPromise = instantEntry
+      ? Promise.resolve<DictionaryEntry | null>(null)
+      : localDictionaryService.lookupPublic(normalized, 1400);
+
+    const aiPromise = state.aiStatus.configured
+      ? withDeadline(
+          aiService.lookupWord(normalized, state.settings.defaultModel, true),
+          4700,
+        )
+      : null;
+
+    let fastEntry = instantEntry;
+
+    if (!fastEntry) {
+      const publicEntry = await publicPromise;
+      if (generation !== searchGeneration) return;
+
+      if (publicEntry) {
+        fastEntry = publicEntry;
+        wordSuggestionService.recordSuccessfulSearch(publicEntry.normalizedWord);
+        updateState({
+          currentEntry: publicEntry,
+          isLoading: false,
+          isEnriching: Boolean(aiPromise),
+          error: null,
+          lookupSource: "public",
+          isDemoEntry: false,
+        });
+      }
+    }
+
+    if (aiPromise) {
+      try {
+        const aiEntry = await aiPromise;
+        if (generation !== searchGeneration) return;
+        const merged = localDictionaryService.mergeFastAndAi(fastEntry, aiEntry);
+        wordSuggestionService.recordSuccessfulSearch(merged.normalizedWord);
+        updateState({
+          currentEntry: merged,
+          isLoading: false,
+          isEnriching: false,
+          error: null,
+          lookupSource: "ai",
+          isDemoEntry: false,
+        });
+        return;
+      } catch (error) {
+        if (generation !== searchGeneration) return;
+        if (fastEntry) {
+          // A useful result already exists. AI is enrichment, so its failure must
+          // never replace a valid local/public answer with a red error screen.
+          updateState({ isLoading: false, isEnriching: false, error: null });
+          return;
+        }
+
+        const message = String((error as any)?.message || error || "AI không phản hồi trong giới hạn 5 giây.");
+        updateState({
+          isLoading: false,
+          isEnriching: false,
+          error: `Không có dữ liệu nhanh cho “${word}”. ${message}`,
+          lookupSource: null,
+        });
+        return;
+      }
+    }
+
+    if (generation !== searchGeneration) return;
+    if (fastEntry) {
+      updateState({ isLoading: false, isEnriching: false, error: null });
+      return;
+    }
+
+    const elapsed = Math.round(performance.now() - startedAt);
+    updateState({
+      isLoading: false,
+      isEnriching: false,
+      error: `Không tìm thấy “${word}” trong dữ liệu local/public (${elapsed} ms). Hãy kiểm tra chính tả hoặc kết nối NVIDIA API để bổ sung nghĩa nâng cao.`,
+      lookupSource: null,
+    });
   },
 
   captureSelectedAndLookup: async () => {
