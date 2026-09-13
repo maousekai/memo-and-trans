@@ -1,5 +1,10 @@
 import type { DictionaryEntry, PartOfSpeech } from "../../types/dictionary";
 import { DEMO_DICTIONARY_ENTRIES } from "../../data/demoEntries";
+import {
+  OFFLINE_DICTIONARY_5000,
+  OFFLINE_DICTIONARY_5000_COUNT,
+  OFFLINE_DICTIONARY_ALIASES,
+} from "../../data/offlineDictionary5000.generated";
 
 interface CoreWord {
   pos: string;
@@ -9,6 +14,14 @@ interface CoreWord {
   forms?: string[];
   example?: string;
   exampleVi?: string;
+}
+
+interface OfflinePackedPart {
+  p: string;
+  i?: string;
+  v: string[];
+  e: string[];
+  f: string[];
 }
 
 const FAST_CACHE_PREFIX = "lexiglass_fast_dict_cache_";
@@ -57,6 +70,22 @@ const inFlight = new Map<string, Promise<DictionaryEntry | null>>();
 
 function normalizeWord(value: string): string {
   return value.trim().toLowerCase().replace(/^[^a-z]+|[^a-z'-]+$/g, "");
+}
+
+function normalizePos(pos: string): string {
+  const key = String(pos || "").trim().toLowerCase();
+  return ({
+    n: "noun",
+    v: "verb",
+    adj: "adjective",
+    adv: "adverb",
+    prep: "preposition",
+    conj: "conjunction",
+    pron: "pronoun",
+    det: "determiner",
+    interj: "interjection",
+    num: "numeral",
+  } as Record<string, string>)[key] || key || "general";
 }
 
 function readPersistentFastCache(word: string): DictionaryEntry | null {
@@ -109,6 +138,53 @@ function coreToEntry(word: string, core: CoreWord): DictionaryEntry {
         collocations: [],
       }],
     }],
+    synonyms: [],
+    antonyms: [],
+    wordFamily: [],
+    commonCollocations: [],
+    commonMistakes: [],
+    mnemonic: null,
+  };
+}
+
+function offlineToEntry(requestedWord: string): DictionaryEntry | null {
+  const baseWord = OFFLINE_DICTIONARY_5000[requestedWord]
+    ? requestedWord
+    : OFFLINE_DICTIONARY_ALIASES[requestedWord];
+  if (!baseWord) return null;
+
+  const packed = OFFLINE_DICTIONARY_5000[baseWord] as OfflinePackedPart[] | undefined;
+  if (!packed?.length) return null;
+
+  const partsOfSpeech: PartOfSpeech[] = packed.map((part) => {
+    const senseCount = Math.max(part.v?.length || 0, part.e?.length || 0, 1);
+    return {
+      type: normalizePos(part.p),
+      forms: Array.isArray(part.f) ? part.f : [],
+      meanings: Array.from({ length: Math.min(3, senseCount) }, (_, index) => ({
+        vietnamese: part.v?.[index] || part.v?.[0] || "",
+        englishDefinition: part.e?.[index] || part.e?.[0] || "",
+        register: null,
+        context: null,
+        examples: [],
+        collocations: [],
+      })).filter((meaning) => meaning.vietnamese || meaning.englishDefinition),
+    };
+  }).filter((part) => part.meanings.length > 0);
+
+  if (!partsOfSpeech.length) return null;
+  const ipa = packed.find((part) => part.i)?.i || null;
+
+  return {
+    query: baseWord,
+    normalizedWord: baseWord,
+    language: "en",
+    ipaUS: ipa,
+    ipaUK: ipa,
+    syllables: null,
+    cefr: null,
+    frequency: "common",
+    partsOfSpeech,
     synonyms: [],
     antonyms: [],
     wordFamily: [],
@@ -172,6 +248,8 @@ async function fetchWithTimeout(url: string, timeoutMs: number): Promise<Respons
 }
 
 export const localDictionaryService = {
+  offlineCount: OFFLINE_DICTIONARY_5000_COUNT,
+
   lookupInstant(rawWord: string): DictionaryEntry | null {
     const word = normalizeWord(rawWord);
     if (!word) return null;
@@ -179,12 +257,16 @@ export const localDictionaryService = {
     if (demo) return demo;
     const core = CORE_LEXICON[word];
     if (core) return coreToEntry(word, core);
+    const offline = offlineToEntry(word);
+    if (offline) return offline;
     return publicCache.get(word) || readPersistentFastCache(word);
   },
 
-  async lookupPublic(rawWord: string, timeoutMs = 1400): Promise<DictionaryEntry | null> {
+  async lookupPublic(rawWord: string, timeoutMs = 1800): Promise<DictionaryEntry | null> {
     const word = normalizeWord(rawWord);
     if (!word || word.includes(" ")) return null;
+    const offline = offlineToEntry(word);
+    if (offline) return offline;
     const cached = publicCache.get(word) || readPersistentFastCache(word);
     if (cached) return cached;
     const existing = inFlight.get(word);
@@ -215,7 +297,7 @@ export const localDictionaryService = {
   prefetch(rawWord: string): void {
     const word = normalizeWord(rawWord);
     if (!word || this.lookupInstant(word)) return;
-    void this.lookupPublic(word, 1800);
+    void this.lookupPublic(word, 2000);
   },
 
   mergeFastAndAi(fast: DictionaryEntry | null, ai: DictionaryEntry): DictionaryEntry {
