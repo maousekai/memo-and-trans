@@ -1,8 +1,22 @@
 use crate::security;
 use base64::{engine::general_purpose, Engine as _};
 use serde::Serialize;
-use std::time::Duration;
+use std::{sync::OnceLock, time::Duration};
 use tauri::{AppHandle, WebviewWindow};
+
+static HTTP_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+
+fn shared_http_client() -> &'static reqwest::Client {
+    HTTP_CLIENT.get_or_init(|| {
+        reqwest::Client::builder()
+            .connect_timeout(Duration::from_secs(3))
+            .pool_idle_timeout(Duration::from_secs(90))
+            .pool_max_idle_per_host(8)
+            .tcp_keepalive(Duration::from_secs(30))
+            .build()
+            .expect("failed to initialize shared HTTP client")
+    })
+}
 
 #[derive(Serialize)]
 pub struct KeyStatus {
@@ -208,7 +222,7 @@ fn build_nim_request_body(model: &str, prompt: &str, temperature: f32) -> serde_
             }
         ],
         "temperature": temperature,
-        "max_tokens": 1200,
+        "max_tokens": 900,
         "stream": false
     });
 
@@ -236,16 +250,11 @@ pub async fn query_nvidia_nim(
     let api_key = security::get_api_key()
         .map_err(|_| "NVIDIA API key not configured in Windows Credential Manager".to_string())?;
 
-    let client = reqwest::Client::builder()
-        .connect_timeout(Duration::from_secs(4))
-        .timeout(Duration::from_secs(12))
-        .build()
-        .map_err(|e| format!("Failed to initialize NVIDIA client: {}", e))?;
-
     let body = build_nim_request_body(&model, &prompt, temperature.unwrap_or(0.1));
 
-    let resp = client
+    let resp = shared_http_client()
         .post("https://integrate.api.nvidia.com/v1/chat/completions")
+        .timeout(Duration::from_millis(4500))
         .header("Authorization", format!("Bearer {}", api_key))
         .header("Content-Type", "application/json")
         .json(&body)
@@ -253,7 +262,7 @@ pub async fn query_nvidia_nim(
         .await
         .map_err(|e| {
             if e.is_timeout() {
-                "NVIDIA model timed out after 12 seconds".to_string()
+                "NVIDIA model exceeded the 4.5 second enrichment budget".to_string()
             } else {
                 format!("Network request failed: {}", e)
             }
@@ -336,9 +345,9 @@ pub async fn synthesize_nvidia_tts(
         .text("encoding", "LINEAR_PCM")
         .text("sample_rate_hz", sample_rate.to_string());
 
-    let client = reqwest::Client::new();
-    let resp = client
+    let resp = shared_http_client()
         .post("https://877104f7-e885-42b9-8de8-f6e4c6303969.invocation.api.nvcf.nvidia.com/v1/audio/synthesize")
+        .timeout(Duration::from_secs(10))
         .header("Authorization", format!("Bearer {}", api_key))
         .multipart(form)
         .send()
