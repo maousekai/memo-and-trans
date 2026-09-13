@@ -1,6 +1,7 @@
 use crate::security;
 use base64::{engine::general_purpose, Engine as _};
 use serde::Serialize;
+use std::time::Duration;
 use tauri::{AppHandle, WebviewWindow};
 
 #[derive(Serialize)]
@@ -83,9 +84,6 @@ fn sample_windows_background(window: &WebviewWindow) -> Result<BackgroundSample,
     let bottom = top.saturating_add(height);
     let gap = 10;
 
-    // Sample just outside the app so the pixels represent the page/desktop that
-    // LexiGlass is floating over instead of LexiGlass itself. Points around all
-    // four sides also work when the app is close to a monitor edge.
     let points = [
         (left - gap, top + height / 4),
         (left - gap, top + height / 2),
@@ -196,6 +194,39 @@ pub async fn save_api_key(key: String) -> Result<(), String> {
     }
 }
 
+fn build_nim_request_body(model: &str, prompt: &str, temperature: f32) -> serde_json::Value {
+    let mut body = serde_json::json!({
+        "model": model,
+        "messages": [
+            {
+                "role": "system",
+                "content": "You are LexiGlass AI. Return only compact valid JSON. Do not explain your reasoning."
+            },
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ],
+        "temperature": temperature,
+        "max_tokens": 1200,
+        "stream": false
+    });
+
+    if model.to_ascii_lowercase().contains("deepseek") {
+        body["reasoning_effort"] = serde_json::json!("low");
+        body["chat_template_kwargs"] = serde_json::json!({
+            "thinking": false,
+            "reasoning_effort": "low"
+        });
+    } else if model.to_ascii_lowercase().contains("nemotron-3.5-lightning") {
+        body["chat_template_kwargs"] = serde_json::json!({
+            "enable_thinking": false
+        });
+    }
+
+    body
+}
+
 #[tauri::command]
 pub async fn query_nvidia_nim(
     model: String,
@@ -205,22 +236,13 @@ pub async fn query_nvidia_nim(
     let api_key = security::get_api_key()
         .map_err(|_| "NVIDIA API key not configured in Windows Credential Manager".to_string())?;
 
-    let client = reqwest::Client::new();
-    let body = serde_json::json!({
-        "model": model,
-        "messages": [
-            {
-                "role": "system",
-                "content": "You are LexiGlass AI. Output strictly valid JSON only."
-            },
-            {
-                "role": "user",
-                "content": prompt
-            }
-        ],
-        "temperature": temperature.unwrap_or(0.1),
-        "max_tokens": 1500
-    });
+    let client = reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(4))
+        .timeout(Duration::from_secs(12))
+        .build()
+        .map_err(|e| format!("Failed to initialize NVIDIA client: {}", e))?;
+
+    let body = build_nim_request_body(&model, &prompt, temperature.unwrap_or(0.1));
 
     let resp = client
         .post("https://integrate.api.nvidia.com/v1/chat/completions")
@@ -229,7 +251,13 @@ pub async fn query_nvidia_nim(
         .json(&body)
         .send()
         .await
-        .map_err(|e| format!("Network request failed: {}", e))?;
+        .map_err(|e| {
+            if e.is_timeout() {
+                "NVIDIA model timed out after 12 seconds".to_string()
+            } else {
+                format!("Network request failed: {}", e)
+            }
+        })?;
 
     if !resp.status().is_success() {
         let status = resp.status();
@@ -244,17 +272,36 @@ pub async fn query_nvidia_nim(
 
     let content = json_resp["choices"][0]["message"]["content"]
         .as_str()
-        .ok_or_else(|| "Empty AI response content".to_string())?;
+        .unwrap_or("")
+        .trim();
 
-    let trimmed = content.trim();
-    let cleaned = if let Some(start) = trimmed.find('{') {
-        if let Some(end) = trimmed.rfind('}') {
-            if end > start { &trimmed[start..=end] } else { trimmed }
+    if content.is_empty() {
+        let finish_reason = json_resp["choices"][0]["finish_reason"]
+            .as_str()
+            .unwrap_or("unknown");
+        let reasoning_present = json_resp["choices"][0]["message"]["reasoning_content"]
+            .as_str()
+            .map(|s| !s.trim().is_empty())
+            .unwrap_or(false)
+            || json_resp["choices"][0]["message"]["reasoning"]
+                .as_str()
+                .map(|s| !s.trim().is_empty())
+                .unwrap_or(false);
+
+        return Err(format!(
+            "NVIDIA returned no final answer (finish_reason={}, reasoning_only={}).",
+            finish_reason, reasoning_present
+        ));
+    }
+
+    let cleaned = if let Some(start) = content.find('{') {
+        if let Some(end) = content.rfind('}') {
+            if end > start { &content[start..=end] } else { content }
         } else {
-            trimmed
+            content
         }
     } else {
-        trimmed
+        content
     };
 
     Ok(cleaned.to_string())
