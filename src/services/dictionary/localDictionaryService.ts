@@ -11,6 +11,9 @@ interface CoreWord {
   exampleVi?: string;
 }
 
+const FAST_CACHE_PREFIX = "lexiglass_fast_dict_cache_";
+const FAST_CACHE_MAX_AGE_MS = 1000 * 60 * 60 * 24 * 30;
+
 const CORE_LEXICON: Record<string, CoreWord> = {
   manager: { pos: "noun", vi: "người quản lý; quản lý", en: "a person responsible for controlling or organizing part of a business or organization", ipa: "/ˈmæn.ɪ.dʒər/", forms: ["managers"], example: "She works as a project manager.", exampleVi: "Cô ấy làm việc với vai trò quản lý dự án." },
   manage: { pos: "verb", vi: "quản lý; xoay xở", en: "to control or organize people, work, money, or a situation", ipa: "/ˈmæn.ɪdʒ/", forms: ["manages", "managing", "managed"] },
@@ -54,6 +57,34 @@ const inFlight = new Map<string, Promise<DictionaryEntry | null>>();
 
 function normalizeWord(value: string): string {
   return value.trim().toLowerCase().replace(/^[^a-z]+|[^a-z'-]+$/g, "");
+}
+
+function readPersistentFastCache(word: string): DictionaryEntry | null {
+  try {
+    const raw = localStorage.getItem(`${FAST_CACHE_PREFIX}${word}`);
+    if (!raw) return null;
+    const payload = JSON.parse(raw) as { cachedAt: number; entry: DictionaryEntry };
+    if (!payload?.entry?.partsOfSpeech?.length || Date.now() - payload.cachedAt > FAST_CACHE_MAX_AGE_MS) {
+      localStorage.removeItem(`${FAST_CACHE_PREFIX}${word}`);
+      return null;
+    }
+    publicCache.set(word, payload.entry);
+    return payload.entry;
+  } catch {
+    return null;
+  }
+}
+
+function writePersistentFastCache(word: string, entry: DictionaryEntry): void {
+  publicCache.set(word, entry);
+  try {
+    localStorage.setItem(
+      `${FAST_CACHE_PREFIX}${word}`,
+      JSON.stringify({ cachedAt: Date.now(), entry }),
+    );
+  } catch {
+    // Fast cache is an optimization only; memory cache still works.
+  }
 }
 
 function coreToEntry(word: string, core: CoreWord): DictionaryEntry {
@@ -147,13 +178,14 @@ export const localDictionaryService = {
     const demo = DEMO_DICTIONARY_ENTRIES[word];
     if (demo) return demo;
     const core = CORE_LEXICON[word];
-    return core ? coreToEntry(word, core) : publicCache.get(word) || null;
+    if (core) return coreToEntry(word, core);
+    return publicCache.get(word) || readPersistentFastCache(word);
   },
 
   async lookupPublic(rawWord: string, timeoutMs = 1400): Promise<DictionaryEntry | null> {
     const word = normalizeWord(rawWord);
     if (!word || word.includes(" ")) return null;
-    const cached = publicCache.get(word);
+    const cached = publicCache.get(word) || readPersistentFastCache(word);
     if (cached) return cached;
     const existing = inFlight.get(word);
     if (existing) return existing;
@@ -167,7 +199,7 @@ export const localDictionaryService = {
         if (!response.ok) return null;
         const payload = await response.json();
         const entry = Array.isArray(payload) ? mapPublicEntry(word, payload[0]) : null;
-        if (entry) publicCache.set(word, entry);
+        if (entry) writePersistentFastCache(word, entry);
         return entry;
       } catch {
         return null;
