@@ -5,9 +5,11 @@ import { invokeNative, isTauriRuntime } from "../desktop/tauriInvoke";
 
 const CACHE_KEY_PREFIX = "lexiglass_dict_cache_";
 const DEFAULT_MODEL = "deepseek-ai/deepseek-v4-flash-0731";
+const FAST_LOOKUP_MODEL = "nvidia/nemotron-3.5-lightning-30b-a3b";
 
 function extractJson(raw: string): any {
   const text = String(raw || "").trim();
+  if (!text) throw new Error("AI không trả về nội dung.");
   const first = text.indexOf("{");
   const last = text.lastIndexOf("}");
   const json = first >= 0 && last > first ? text.slice(first, last + 1) : text;
@@ -60,14 +62,9 @@ function normalizeEntry(data: any, queryWord: string): DictionaryEntry {
 }
 
 function dictionaryPrompt(word: string) {
-  return `You are an expert English-Vietnamese lexicographer. Analyze the English word or phrase: "${word}".
-Return ONLY one valid JSON object, no markdown. Use natural Vietnamese and order common meanings first.
+  return `Create a compact English-Vietnamese dictionary entry for "${word}". Return ONLY valid JSON, no markdown. Be concise and practical. Use at most 2 parts of speech, 2 common meanings per part of speech, 1 example per meaning, and up to 4 collocations total. Natural Vietnamese, common meanings first.
 Schema:
-{
-  "query":"${word}","normalizedWord":"string","language":"en","ipaUS":"string|null","ipaUK":"string|null","syllables":"string|null","cefr":"A1|A2|B1|B2|C1|C2|null","frequency":"very-common|common|medium|uncommon|null",
-  "partsOfSpeech":[{"type":"string","forms":["string"],"meanings":[{"vietnamese":"string","englishDefinition":"string","register":"neutral|formal|informal|academic|slang|null","context":"string|null","examples":[{"english":"string","vietnamese":"string"}],"collocations":["string"]}]}],
-  "synonyms":["string"],"antonyms":["string"],"wordFamily":[{"word":"string","type":"string","vietnameseMeaning":"string"}],"commonCollocations":["string"],"commonMistakes":[{"incorrect":"string","correct":"string","explanationVietnamese":"string"}],"mnemonic":"string|null"
-}`;
+{"query":"${word}","normalizedWord":"string","language":"en","ipaUS":"string|null","ipaUK":"string|null","syllables":"string|null","cefr":"A1|A2|B1|B2|C1|C2|null","frequency":"very-common|common|medium|uncommon|null","partsOfSpeech":[{"type":"string","forms":["string"],"meanings":[{"vietnamese":"string","englishDefinition":"string","register":"neutral|formal|informal|academic|slang|null","context":"string|null","examples":[{"english":"string","vietnamese":"string"}],"collocations":["string"]}]}],"synonyms":["string"],"antonyms":["string"],"wordFamily":[{"word":"string","type":"string","vietnameseMeaning":"string"}],"commonCollocations":["string"],"commonMistakes":[{"incorrect":"string","correct":"string","explanationVietnamese":"string"}],"mnemonic":"string|null"}`;
 }
 
 export class NvidiaNIMProvider implements AIProvider {
@@ -104,7 +101,7 @@ export class NvidiaNIMProvider implements AIProvider {
           configured: status.configured,
           defaultModel: DEFAULT_MODEL,
           provider: "NVIDIA NIM",
-          proxy: status.configured ? status.storage_type : "Chưa cấu hình API key",
+          proxy: status.configured ? `${status.storage_type} · Fast lookup: Nemotron Lightning` : "Chưa cấu hình API key",
         };
       } catch {
         return { configured: false, defaultModel: DEFAULT_MODEL, provider: "NVIDIA NIM", proxy: "Native bridge unavailable" };
@@ -125,15 +122,26 @@ export class NvidiaNIMProvider implements AIProvider {
     await invokeNative("save_api_key", { key: key.trim() });
   }
 
-  async testConnection(model = DEFAULT_MODEL): Promise<void> {
+  async testConnection(): Promise<void> {
     if (!isTauriRuntime()) throw new Error("Kiểm tra kết nối native chỉ khả dụng trong bản Desktop.");
     const raw = await invokeNative<string>("query_nvidia_nim", {
-      model,
+      model: FAST_LOOKUP_MODEL,
       prompt: 'Return exactly this JSON object: {"ok":true}',
       temperature: 0,
     });
     const parsed = extractJson(raw);
     if (parsed?.ok !== true) throw new Error("NVIDIA API trả về phản hồi không hợp lệ.");
+  }
+
+  private async lookupNativeWithModel(word: string, model: string): Promise<DictionaryEntry> {
+    const raw = await invokeNative<string>("query_nvidia_nim", {
+      model,
+      prompt: dictionaryPrompt(word),
+      temperature: 0.1,
+    });
+    const entry = normalizeEntry(extractJson(raw), word);
+    if (!entry.partsOfSpeech.length) throw new Error("AI không trả về dữ liệu từ điển hợp lệ.");
+    return entry;
   }
 
   async lookupWord(word: string, model?: string, forceRefresh = false): Promise<DictionaryEntry> {
@@ -146,24 +154,31 @@ export class NvidiaNIMProvider implements AIProvider {
     }
 
     if (isTauriRuntime()) {
-      try {
-        const raw = await invokeNative<string>("query_nvidia_nim", {
-          model: model || DEFAULT_MODEL,
-          prompt: dictionaryPrompt(normalized),
-          temperature: 0.15,
-        });
-        const entry = normalizeEntry(extractJson(raw), normalized);
-        if (!entry.partsOfSpeech.length) throw new Error("AI không trả về dữ liệu từ điển hợp lệ.");
-        this.saveToCache(entry);
-        return entry;
-      } catch (err: any) {
-        if (DEMO_DICTIONARY_ENTRIES[normalized]) return DEMO_DICTIONARY_ENTRIES[normalized];
-        const message = String(err?.message || err || "Không thể kết nối NVIDIA NIM.");
-        if (message.toLowerCase().includes("not configured")) {
-          throw new Error("Chưa kết nối NVIDIA API. Vào Sổ học tập → Cài đặt → NVIDIA API để nhập API key.");
+      const preferredQualityModel = model || DEFAULT_MODEL;
+      const candidates = Array.from(new Set([
+        FAST_LOOKUP_MODEL,
+        preferredQualityModel,
+        DEFAULT_MODEL,
+      ]));
+      let lastError: unknown = null;
+
+      for (const candidate of candidates) {
+        try {
+          const entry = await this.lookupNativeWithModel(normalized, candidate);
+          this.saveToCache(entry);
+          return entry;
+        } catch (error) {
+          lastError = error;
+          console.warn(`Dictionary lookup failed with ${candidate}; trying fallback.`, error);
         }
-        throw new Error(message);
       }
+
+      if (DEMO_DICTIONARY_ENTRIES[normalized]) return DEMO_DICTIONARY_ENTRIES[normalized];
+      const message = String((lastError as any)?.message || lastError || "Không thể kết nối NVIDIA NIM.");
+      if (message.toLowerCase().includes("not configured")) {
+        throw new Error("Chưa kết nối NVIDIA API. Vào Sổ học tập → Cài đặt → NVIDIA API để nhập API key.");
+      }
+      throw new Error(`Tra từ thất bại sau khi thử model nhanh và model dự phòng. ${message}`);
     }
 
     try {
