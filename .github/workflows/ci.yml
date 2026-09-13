@@ -93,6 +93,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: LexiGlass-Windows-portable
-          path: src-tauri/target/release/lexiglass.exe
+          path: |
+            src-tauri/target/release/lexiglass.exe
+            THIRD_PARTY_DATA.md
           if-no-files-found: error
           retention-days: 14
