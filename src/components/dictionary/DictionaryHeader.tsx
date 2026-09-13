@@ -1,4 +1,4 @@
-import React, { useMemo } from "react";
+import React, { useEffect, useMemo } from "react";
 import { Pin, X, Settings, Layers } from "lucide-react";
 import { GlassSearch } from "../glass/GlassSearch";
 import { GlassButton } from "../glass/GlassButton";
@@ -16,6 +16,19 @@ export const DictionaryHeader: React.FC = () => {
     () => wordSuggestionService.suggest(searchQuery, savedWords, 5),
     [searchQuery, savedWords],
   );
+
+  useEffect(() => {
+    const trimmed = searchQuery.trim().toLowerCase();
+    if (trimmed.length < 3 || trimmed.includes(" ")) return;
+
+    const timer = window.setTimeout(() => {
+      const best = suggestions[0];
+      const likelyWord = best && best.score >= 0.82 ? best.word : trimmed;
+      store.prefetchWord(likelyWord);
+    }, 220);
+
+    return () => window.clearTimeout(timer);
+  }, [searchQuery, suggestions]);
 
   const handleSearch = (word: string) => {
     store.searchWord(word);
