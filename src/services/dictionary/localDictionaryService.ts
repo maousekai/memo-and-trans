@@ -1,5 +1,6 @@
 import type { DictionaryEntry, PartOfSpeech } from "../../types/dictionary";
 import { DEMO_DICTIONARY_ENTRIES } from "../../data/demoEntries";
+import { TOEIC_CORE_ENTRIES, TOEIC_QUERY_ALIASES } from "../../data/toeicCoreEntries";
 import {
   OFFLINE_DICTIONARY_10000,
   OFFLINE_DICTIONARY_10000_COUNT,
@@ -71,6 +72,11 @@ const inFlight = new Map<string, Promise<DictionaryEntry | null>>();
 
 function normalizeWord(value: string): string {
   return value.trim().toLowerCase().replace(/^[^a-z]+|[^a-z'-]+$/g, "");
+}
+
+function resolveToeicQuery(value: string): string {
+  const normalized = normalizeWord(value);
+  return TOEIC_QUERY_ALIASES[normalized] || normalized;
 }
 
 function normalizePos(pos: string): string {
@@ -254,8 +260,11 @@ export const localDictionaryService = {
   offlineCount: OFFLINE_DICTIONARY_10000_COUNT,
 
   lookupInstant(rawWord: string): DictionaryEntry | null {
-    const word = normalizeWord(rawWord);
-    if (!word) return null;
+    const rawNormalized = normalizeWord(rawWord);
+    if (!rawNormalized) return null;
+    const word = resolveToeicQuery(rawNormalized);
+    const toeic = TOEIC_CORE_ENTRIES[word];
+    if (toeic) return toeic;
     const demo = DEMO_DICTIONARY_ENTRIES[word];
     if (demo) return demo;
     const core = CORE_LEXICON[word];
@@ -266,8 +275,12 @@ export const localDictionaryService = {
   },
 
   async lookupPublic(rawWord: string, timeoutMs = 1800): Promise<DictionaryEntry | null> {
-    const word = normalizeWord(rawWord);
-    if (!word || word.includes(" ")) return null;
+    const rawNormalized = normalizeWord(rawWord);
+    if (!rawNormalized) return null;
+    const word = resolveToeicQuery(rawNormalized);
+    const toeic = TOEIC_CORE_ENTRIES[word];
+    if (toeic) return toeic;
+    if (word.includes(" ")) return null;
     const offline = offlineToEntry(word);
     if (offline) return offline;
     const cached = publicCache.get(word) || readPersistentFastCache(word);
@@ -298,7 +311,7 @@ export const localDictionaryService = {
   },
 
   prefetch(rawWord: string): void {
-    const word = normalizeWord(rawWord);
+    const word = resolveToeicQuery(rawWord);
     if (!word || this.lookupInstant(word)) return;
     void this.lookupPublic(word, 2000);
   },
