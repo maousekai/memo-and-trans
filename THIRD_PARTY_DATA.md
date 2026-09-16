@@ -1,13 +1,15 @@
 # Third-party dictionary data
 
-LexiGlass bundles a generated subset of **10,000 frequent English headwords/phrases** from **thichhoc-dict** for instant offline English–Vietnamese lookup, plus bilingual usage examples from the Tatoeba English–Vietnamese corpus distributed by ManyThings.
+LexiGlass bundles a generated subset of **20,000 frequent English headwords/phrases** from **thichhoc-dict** for instant offline English–Vietnamese lookup, plus bilingual usage examples from the Tatoeba English–Vietnamese corpus distributed by ManyThings.
+
+The selection process also contains a manually curated **TOEIC/workplace priority headword list**. That list only changes which licensed dictionary entries are guaranteed priority during generation; definitions, translations, pronunciation data, and examples are not copied from proprietary TOEIC materials.
 
 ## English–Vietnamese dictionary
 
 - Project: https://github.com/thichhoc-org/thichhoc-dict
 - Data license: Creative Commons Attribution-ShareAlike 4.0 International (CC BY-SA 4.0)
 - Upstream sources documented by thichhoc-dict include WordNet 3.1 (Princeton), CMUdict (Carnegie Mellon University), and Wiktionary.
-- LexiGlass modifies the upstream data by frequency filtering, deduplicating headwords, compacting senses, normalizing parts of speech, and generating an inflection alias index.
+- LexiGlass modifies the upstream data by frequency filtering, TOEIC/workplace priority selection, deduplicating headwords, compacting senses, normalizing parts of speech, and generating an inflection alias index.
 
 The bundled dictionary subset is distributed under CC BY-SA 4.0. LexiGlass application code retains its own repository license; the share-alike requirement applies to the derived dictionary data.
 
