@@ -3,6 +3,7 @@ import { DictionaryEntry } from "../types/dictionary";
 import { SavedWord, QueueType, GeneratedFlashcard, FSRSRating, StudyDashboardStats } from "../types/study";
 import { WindowMode } from "../types/desktop";
 import { AppSettings, DEFAULT_SETTINGS, NVIDIA_MODELS } from "../types/settings";
+import type { QueryMode, TranslationResult } from "../types/translation";
 import { storageService } from "../services/database/storageService";
 import { aiService } from "../services/ai/nvidiaProvider";
 import { desktopBridge, BrowserDesktopBridge } from "../services/desktop/desktopBridge";
@@ -10,6 +11,9 @@ import { DEMO_DICTIONARY_ENTRIES } from "../data/demoEntries";
 import { generateFlashcards, selectSmartCardType } from "../services/fsrs/fsrsEngine";
 import { wordSuggestionService } from "../services/search/wordSuggestionService";
 import { localDictionaryService } from "../services/dictionary/localDictionaryService";
+import { classifyInput } from "../services/translation/inputClassifier";
+import { translationService } from "../services/translation/translationService";
+import { translationCache } from "../services/translation/translationCache";
 
 export type StudyTab = "notebook" | "flashcards" | "dashboard" | "settings";
 export type LookupSource = "cache" | "saved" | "local" | "public" | "ai" | "demo" | null;
@@ -21,9 +25,13 @@ interface AppState {
   studyTab: StudyTab;
   isPinned: boolean;
   searchQuery: string;
+  queryMode: QueryMode;
   currentEntry: DictionaryEntry | null;
+  currentTranslation: TranslationResult | null;
   isLoading: boolean;
   isEnriching: boolean;
+  isTranslating: boolean;
+  isAnalyzingTranslation: boolean;
   lookupSource: LookupSource;
   error: string | null;
   isDemoEntry: boolean;
@@ -88,9 +96,13 @@ let state: AppState = {
   studyTab: "notebook",
   isPinned: true,
   searchQuery: "mitigate",
+  queryMode: "dictionary",
   currentEntry: initialWord,
+  currentTranslation: null,
   isLoading: false,
   isEnriching: false,
+  isTranslating: false,
+  isAnalyzingTranslation: false,
   lookupSource: "demo",
   error: null,
   isDemoEntry: true,
@@ -223,6 +235,86 @@ export const store = {
     localDictionaryService.prefetch(word);
   },
 
+  submitQuery: async (rawInput: string) => {
+    const input = rawInput.trim();
+    if (!input) return;
+    const mode = classifyInput(input);
+    if (mode === "dictionary") {
+      updateState({ queryMode: mode, currentTranslation: null, isTranslating: false, isAnalyzingTranslation: false });
+      await store.searchWord(input);
+      return;
+    }
+    await store.translateText(input, mode);
+  },
+
+  translateText: async (rawText: string, mode?: QueryMode) => {
+    const text = rawText.trim();
+    if (!text) return;
+    const generation = ++searchGeneration;
+    const queryMode = mode && mode !== "dictionary" ? mode : classifyInput(text);
+
+    updateState({
+      searchQuery: text,
+      queryMode,
+      currentEntry: null,
+      currentTranslation: null,
+      isLoading: true,
+      isTranslating: true,
+      isAnalyzingTranslation: false,
+      isEnriching: false,
+      error: null,
+      lookupSource: null,
+      isDemoEntry: false,
+    });
+
+    try {
+      const result = await translationService.translate(text, {
+        offlineOnly: state.settings.translationOfflineOnly,
+        providerPreference: state.settings.translationProvider,
+      });
+      if (generation !== searchGeneration) return;
+
+      updateState({
+        currentTranslation: result,
+        isLoading: false,
+        isTranslating: false,
+        error: null,
+      });
+
+      if (!state.settings.translationAnalysisEnabled || result.analysisStatus === "complete") return;
+
+      updateState({ isAnalyzingTranslation: true });
+      translationService
+        .analyze(result, {
+          offlineOnly: state.settings.translationOfflineOnly,
+          providerPreference: state.settings.translationProvider,
+        })
+        .then((analysis) => {
+          if (generation !== searchGeneration) return;
+          const merged: TranslationResult = {
+            ...result,
+            ...analysis,
+            analysisStatus: "complete",
+          };
+          translationCache.write(result.sourceText, merged);
+          updateState({ currentTranslation: merged, isAnalyzingTranslation: false });
+        })
+        .catch(() => {
+          if (generation !== searchGeneration) return;
+          const failed = { ...result, analysisStatus: "failed" as const };
+          updateState({ currentTranslation: failed, isAnalyzingTranslation: false });
+        });
+    } catch (error) {
+      if (generation !== searchGeneration) return;
+      updateState({
+        isLoading: false,
+        isTranslating: false,
+        isAnalyzingTranslation: false,
+        error: String((error as any)?.message || error || "Không thể dịch văn bản lúc này."),
+      });
+    }
+  },
+
   searchWord: async (rawWord: string, forceRefresh = false) => {
     const word = rawWord.trim();
     if (!word) return;
@@ -246,6 +338,10 @@ export const store = {
           : null;
 
     updateState({
+      queryMode: "dictionary",
+      currentTranslation: null,
+      isTranslating: false,
+      isAnalyzingTranslation: false,
       isLoading: !instantEntry,
       isEnriching: Boolean(instantEntry && state.aiStatus.configured),
       error: null,
@@ -259,8 +355,6 @@ export const store = {
       wordSuggestionService.recordSuccessfulSearch(instantEntry.normalizedWord);
     }
 
-    // Start non-NVIDIA dictionary and AI in parallel. The public dictionary is
-    // intentionally given a very small latency budget so the UI never waits on it.
     const publicPromise = instantEntry
       ? Promise.resolve<DictionaryEntry | null>(null)
       : localDictionaryService.lookupPublic(normalized, 1400);
@@ -310,8 +404,6 @@ export const store = {
       } catch (error) {
         if (generation !== searchGeneration) return;
         if (fastEntry) {
-          // A useful result already exists. AI is enrichment, so its failure must
-          // never replace a valid local/public answer with a red error screen.
           updateState({ isLoading: false, isEnriching: false, error: null });
           return;
         }
@@ -337,7 +429,7 @@ export const store = {
     updateState({
       isLoading: false,
       isEnriching: false,
-      error: `Không tìm thấy “${word}” trong dữ liệu local/public (${elapsed} ms). Hãy kiểm tra chính tả hoặc kết nối NVIDIA API để bổ sung nghĩa nâng cao.`,
+      error: `Không tìm thấy “${word}” trong dữ liệu local/public (${elapsed} ms). Hãy kiểm tra chính tả hoặc kết nối AI để bổ sung nghĩa nâng cao.`,
       lookupSource: null,
     });
   },
@@ -346,9 +438,32 @@ export const store = {
     const captured = await desktopBridge.captureSelectedText();
     if (captured && captured.trim()) {
       if (state.windowMode === "bubble") await store.setWindowMode("lookup");
-      await store.searchWord(captured.trim());
+      await store.submitQuery(captured.trim());
     } else if (state.windowMode === "bubble") {
       await store.setWindowMode("lookup");
+    }
+  },
+
+  saveCurrentPhrase: () => {
+    if (!state.currentTranslation) return;
+    const item = {
+      id: `phrase_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      sourceText: state.currentTranslation.sourceText,
+      translation: state.currentTranslation.translatedText,
+      alternatives: state.currentTranslation.alternativeTranslations,
+      createdAt: new Date().toISOString(),
+    };
+    try {
+      const key = "lexiglass_saved_phrases_v1";
+      const raw = localStorage.getItem(key);
+      const existing = raw ? JSON.parse(raw) : [];
+      const normalized = item.sourceText.trim().toLowerCase();
+      const filtered = Array.isArray(existing)
+        ? existing.filter((entry: any) => String(entry?.sourceText || "").trim().toLowerCase() !== normalized)
+        : [];
+      localStorage.setItem(key, JSON.stringify([item, ...filtered].slice(0, 1000)));
+    } catch {
+      // Saving a phrase is optional; translation remains usable if persistence fails.
     }
   },
 
