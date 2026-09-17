@@ -187,8 +187,15 @@ export const store = {
       const status = await aiService.checkStatus();
       updateState({ aiStatus: status });
 
-      desktopBridge.registerGlobalShortcut(state.settings.globalShortcut, () => {
-        store.captureSelectedAndLookup();
+      desktopBridge.registerGlobalShortcut(state.settings.globalShortcut, (selectedText?: string) => {
+        void (async () => {
+          if (selectedText && selectedText.trim()) {
+            if (state.windowMode === "bubble") await store.setWindowMode("lookup");
+            await store.submitQuery(selectedText.trim());
+            return;
+          }
+          await store.captureSelectedAndLookup();
+        })();
       });
 
       store.setQueueType("due");
