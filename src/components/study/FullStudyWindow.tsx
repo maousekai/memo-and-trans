@@ -3,6 +3,7 @@ import { useAppStore, store, StudyTab } from "../../store/useAppStore";
 import { GlassSurface } from "../glass/GlassSurface";
 import { GlassButton } from "../glass/GlassButton";
 import { VocabularyNotebook } from "../vocabulary/VocabularyNotebook";
+import { SavedPhraseNotebook } from "../vocabulary/SavedPhraseNotebook";
 import { FlashcardReview } from "../flashcards/FlashcardReview";
 import { StudyAudioControls } from "../flashcards/StudyAudioControls";
 import { StudyDashboard } from "./StudyDashboard";
@@ -13,19 +14,21 @@ export const FullStudyWindow: React.FC = () => {
   const studyTab = useAppStore((s) => s.studyTab);
   const isPinned = useAppStore((s) => s.isPinned);
   const savedWords = useAppStore((s) => s.savedWords);
+  const savedPhrases = useAppStore((s) => s.savedPhrases);
   const settings = useAppStore((s) => s.settings);
 
-  const dueCount = savedWords.filter(
-    (w) => !w.isKnown && new Date(w.fsrs.due).getTime() <= Date.now()
+  const learningItems = [...savedWords, ...savedPhrases];
+  const dueCount = learningItems.filter(
+    (item) => !item.isKnown && new Date(item.fsrs.due).getTime() <= Date.now()
   ).length;
 
   const todayProgress = Math.min(
     100,
-    Math.round((savedWords.length / Math.max(1, settings.dailyNewWordTarget)) * 100)
+    Math.round((learningItems.length / Math.max(1, settings.dailyNewWordTarget)) * 100)
   );
 
   const sidebarItems: { id: StudyTab; label: string; icon: React.ReactNode; badge?: number }[] = [
-    { id: "notebook", label: "Sổ từ", icon: <BookOpen className="w-4 h-4 flex-shrink-0" />, badge: savedWords.length },
+    { id: "notebook", label: "Sổ học", icon: <BookOpen className="w-4 h-4 flex-shrink-0" />, badge: learningItems.length },
     { id: "flashcards", label: "Ôn tập", icon: <Brain className="w-4 h-4 flex-shrink-0" />, badge: dueCount > 0 ? dueCount : undefined },
     { id: "dashboard", label: "Tiến độ", icon: <BarChart3 className="w-4 h-4 flex-shrink-0" /> },
     { id: "settings", label: "Cài đặt", icon: <Settings className="w-4 h-4 flex-shrink-0" /> },
@@ -102,11 +105,14 @@ export const FullStudyWindow: React.FC = () => {
             <div className="p-2.5 rounded-xl bg-slate-900/45 border border-white/[0.07] space-y-1.5">
               <div className="flex items-center justify-between text-[11px]">
                 <span className="text-slate-400">Mục tiêu hôm nay</span>
-                <span className="text-slate-200 font-medium">{savedWords.length}/{settings.dailyNewWordTarget}</span>
+                <span className="text-slate-200 font-medium">{learningItems.length}/{settings.dailyNewWordTarget}</span>
               </div>
               <div className="w-full h-1.5 rounded-full bg-white/[0.06] overflow-hidden">
                 <div className="h-full bg-slate-300/70 rounded-full transition-all duration-300" style={{ width: `${todayProgress}%` }} />
               </div>
+              {savedPhrases.length > 0 && (
+                <p className="text-[9px] text-slate-500">Gồm {savedWords.length} từ · {savedPhrases.length} cụm/câu</p>
+              )}
             </div>
 
             {dueCount > 0 ? (
@@ -128,7 +134,14 @@ export const FullStudyWindow: React.FC = () => {
         </aside>
 
         <main className="flex-1 min-w-0 min-h-0 h-full overflow-y-auto overflow-x-hidden custom-scrollbar p-4 md:p-5">
-          {studyTab === "notebook" && <VocabularyNotebook />}
+          {studyTab === "notebook" && (
+            <div className="h-full min-h-0 flex flex-col gap-3">
+              <SavedPhraseNotebook />
+              <div className="flex-1 min-h-0">
+                <VocabularyNotebook />
+              </div>
+            </div>
+          )}
           {studyTab === "flashcards" && (
             <div className="h-full min-h-0 flex flex-col gap-2.5">
               <StudyAudioControls />
