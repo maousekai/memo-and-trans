@@ -1,6 +1,7 @@
 pub mod commands;
 pub mod db;
 pub mod security;
+pub mod translation;
 
 use tauri::{Manager, WebviewWindow};
 
@@ -48,9 +49,8 @@ fn apply_windows_native_frame(window: &WebviewWindow) {
 pub(crate) fn maintain_windows_transparent_frame(window: &WebviewWindow) {
     use window_vibrancy::{clear_acrylic, clear_blur};
 
-    // Acrylic changes its visual state when the window gains focus on recent
-    // Windows 11 builds. Keep the native backdrop clear and let the WebView own
-    // tint/contrast so focused and unfocused states stay visually consistent.
+    // Keep the native backdrop clear and let the WebView own tint/contrast so
+    // focused and unfocused states stay visually consistent.
     let _ = clear_acrylic(window);
     let _ = clear_blur(window);
     apply_windows_native_frame(window);
@@ -106,7 +106,10 @@ pub fn run() {
             commands::get_api_key_status,
             commands::save_api_key,
             commands::query_nvidia_nim,
-            commands::synthesize_nvidia_tts
+            commands::synthesize_nvidia_tts,
+            translation::get_gemini_key_status,
+            translation::save_gemini_api_key,
+            translation::query_gemini
         ])
         .run(tauri::generate_context!())
         .expect("error while running LexiGlass desktop application");
