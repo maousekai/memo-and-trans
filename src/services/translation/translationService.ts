@@ -110,8 +110,8 @@ class TranslationService {
     const segment = segments[0];
     if (!segment) throw new Error("Không có văn bản hợp lệ để dịch.");
 
-    // Canonical pipeline: cache/local are hard short-circuits. They never trigger
-    // a cloud request after a hit.
+    // Canonical pipeline: cache/local are hard short-circuits. A cache hit is a
+    // complete response for this lookup and must never trigger another cloud call.
     const cached = translationCache.read(segment);
     if (cached) {
       return {
@@ -120,7 +120,7 @@ class TranslationService {
         isPartial: segments.length > 1,
         segmentIndex: 1,
         segmentCount: segments.length,
-        analysisStatus: cached.analysisStatus === "complete" ? "complete" : "none",
+        analysisStatus: "complete",
       };
     }
 
