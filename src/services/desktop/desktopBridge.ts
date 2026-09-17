@@ -2,13 +2,14 @@ import { BackgroundSample, DesktopBridge, WindowMode, WindowPosition } from "../
 import { invokeNative, isTauriRuntime } from "./tauriInvoke";
 
 const POS_KEY = "lexiglass_window_position";
+const NATIVE_LOOKUP_EVENT = "lexiglass-global-lookup";
 
 export class BrowserDesktopBridge implements DesktopBridge {
   public isTauri = false;
   private currentMode: WindowMode = "lookup";
   private isAlwaysOnTop = true;
   private position: WindowPosition = { x: 100, y: 100 };
-  private shortcutCallbacks: Map<string, () => void> = new Map();
+  private shortcutCallbacks: Map<string, (selectedText?: string) => void> = new Map();
   private simulatedClipboardText = "mitigate";
 
   constructor() {
@@ -41,7 +42,7 @@ export class BrowserDesktopBridge implements DesktopBridge {
     if (selection) return selection;
     try {
       const text = await navigator.clipboard?.readText?.();
-      if (text && text.trim().length > 0 && text.trim().length < 120) return text.trim();
+      if (text && text.trim().length > 0 && text.trim().length < 12_000) return text.trim();
     } catch {
       // Browser/iframe may deny clipboard access.
     }
@@ -53,7 +54,10 @@ export class BrowserDesktopBridge implements DesktopBridge {
   }
 
   setSimulatedClipboardText(text: string) { this.simulatedClipboardText = text; }
-  async registerGlobalShortcut(shortcut: string, callback: () => void) { this.shortcutCallbacks.set(shortcut, callback); return true; }
+  async registerGlobalShortcut(shortcut: string, callback: (selectedText?: string) => void) {
+    this.shortcutCallbacks.set(shortcut, callback);
+    return true;
+  }
   async unregisterGlobalShortcut(shortcut: string) { this.shortcutCallbacks.delete(shortcut); }
   async minimizeToBubble() { this.currentMode = "bubble"; }
   async closeWindow() { this.currentMode = "bubble"; }
@@ -75,6 +79,8 @@ export class BrowserDesktopBridge implements DesktopBridge {
 export class TauriDesktopBridge implements DesktopBridge {
   public isTauri = true;
   private fallback = new BrowserDesktopBridge();
+  private nativeShortcutCallback: ((selectedText?: string) => void) | null = null;
+  private nativeLookupListenerInstalled = false;
 
   async getWindowMode() { return this.fallback.getWindowMode(); }
 
@@ -120,7 +126,7 @@ export class TauriDesktopBridge implements DesktopBridge {
 
   async captureSelectedText(): Promise<string | null> {
     try {
-      const text = await invokeNative<string>("get_selected_text");
+      const text = await invokeNative<string>("capture_selected_text");
       return text?.trim() || null;
     } catch (error) {
       console.warn("Native selected-text capture failed:", error);
@@ -137,14 +143,22 @@ export class TauriDesktopBridge implements DesktopBridge {
     }
   }
 
-  async registerGlobalShortcut(shortcut: string, callback: () => void): Promise<boolean> {
-    // Keep the browser-level handler as a reliable in-window shortcut.
-    // Native system-wide registration is handled separately by the Tauri plugin/runtime.
-    return this.fallback.registerGlobalShortcut(shortcut, callback);
+  async registerGlobalShortcut(_shortcut: string, callback: (selectedText?: string) => void): Promise<boolean> {
+    // The system-wide Ctrl+Shift+D shortcut is registered in Rust so it can
+    // capture text from Chrome/PDF/other apps before LexiGlass takes focus.
+    this.nativeShortcutCallback = callback;
+    if (!this.nativeLookupListenerInstalled && typeof window !== "undefined") {
+      window.addEventListener(NATIVE_LOOKUP_EVENT, ((event: Event) => {
+        const selected = (event as CustomEvent<string>).detail;
+        this.nativeShortcutCallback?.(typeof selected === "string" ? selected : undefined);
+      }) as EventListener);
+      this.nativeLookupListenerInstalled = true;
+    }
+    return true;
   }
 
-  async unregisterGlobalShortcut(shortcut: string): Promise<void> {
-    await this.fallback.unregisterGlobalShortcut(shortcut);
+  async unregisterGlobalShortcut(_shortcut: string): Promise<void> {
+    this.nativeShortcutCallback = null;
   }
 
   async minimizeToBubble() { await this.setWindowMode("bubble"); }

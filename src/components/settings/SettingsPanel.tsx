@@ -1,22 +1,23 @@
 import React, { useState } from "react";
-import { useAppStore, store } from "../../store/useAppStore";
-import { GlassSurface } from "../glass/GlassSurface";
-import { NVIDIA_MODELS } from "../../types/settings";
 import {
-  Key,
-  Volume2,
-  Command,
-  Layers,
-  Sliders,
-  ShieldCheck,
   AlertCircle,
-  Info,
+  CheckCircle2,
+  Command,
   Eye,
   EyeOff,
+  Info,
+  Key,
+  Layers,
   Loader2,
-  CheckCircle2,
+  ShieldCheck,
+  Sliders,
   Trash2,
 } from "lucide-react";
+import { GlassSurface } from "../glass/GlassSurface";
+import { TranslationSettingsCard } from "./TranslationSettingsCard";
+import { SpeechProviderSettings } from "./SpeechProviderSettings";
+import { useAppStore, store } from "../../store/useAppStore";
+import { NVIDIA_MODELS } from "../../types/settings";
 import { desktopBridge } from "../../services/desktop/desktopBridge";
 import { aiService } from "../../services/ai/nvidiaProvider";
 
@@ -51,7 +52,7 @@ export const SettingsPanel: React.FC = () => {
       await aiService.testConnection(settings.defaultModel);
       await store.init();
       setApiKey("");
-      setApiMessage({ ok: true, text: "Kết nối NVIDIA API thành công. Key đã được lưu an toàn trên Windows." });
+      setApiMessage({ ok: true, text: "Kết nối NVIDIA API thành công." });
     } catch (error: any) {
       setApiMessage({ ok: false, text: String(error?.message || error || "Không thể kết nối NVIDIA API.") });
     } finally {
@@ -75,13 +76,15 @@ export const SettingsPanel: React.FC = () => {
 
   return (
     <div className="flex flex-col gap-4 pr-1 pb-10 text-xs select-text min-w-0">
+      <TranslationSettingsCard />
+
       <GlassSurface variant="card" className="p-4 space-y-3">
         <div className="flex items-center justify-between flex-wrap gap-2">
           <div className={sectionTitle}>
             <Key className={mutedIcon} />
             <div>
               <h3 className="text-sm font-bold">NVIDIA API</h3>
-              <p className="text-[11px] text-slate-400 font-normal mt-0.5">Dùng DeepSeek V4 qua NVIDIA NIM.</p>
+              <p className="text-[11px] text-slate-400 font-normal mt-0.5">Dùng cho fallback dịch, tra AI nâng cao và NVIDIA Magpie TTS.</p>
             </div>
           </div>
           {aiStatus.configured ? (
@@ -106,76 +109,46 @@ export const SettingsPanel: React.FC = () => {
                   onKeyDown={(e) => {
                     if (e.key === "Enter" && !apiBusy) saveAndTestApiKey();
                   }}
-                  placeholder={aiStatus.configured ? "Nhập key mới để thay thế..." : "nvapi-..."}
+                  placeholder={aiStatus.configured ? "Nhập key mới để thay thế…" : "nvapi-…"}
                   autoComplete="off"
                   spellCheck={false}
                   className="w-full h-10 pl-3 pr-10 rounded-xl bg-white/[0.055] border border-white/[0.10] text-slate-100 placeholder:text-slate-500 outline-none focus:border-white/[0.22]"
                 />
-                <button
-                  type="button"
-                  onClick={() => setShowApiKey((v) => !v)}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/[0.06]"
-                  title={showApiKey ? "Ẩn API key" : "Hiện API key"}
-                >
+                <button type="button" onClick={() => setShowApiKey((v) => !v)} className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/[0.06]">
                   {showApiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
               </div>
-              <button
-                type="button"
-                onClick={saveAndTestApiKey}
-                disabled={apiBusy || !apiKey.trim()}
-                className="h-10 px-3.5 rounded-xl bg-white/[0.11] hover:bg-white/[0.16] disabled:opacity-40 disabled:cursor-not-allowed border border-white/[0.13] text-white font-semibold whitespace-nowrap flex items-center gap-1.5"
-              >
+              <button type="button" onClick={saveAndTestApiKey} disabled={apiBusy || !apiKey.trim()} className="h-10 px-3.5 rounded-xl bg-white/[0.11] hover:bg-white/[0.16] disabled:opacity-40 disabled:cursor-not-allowed border border-white/[0.13] text-white font-semibold whitespace-nowrap flex items-center gap-1.5">
                 {apiBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
                 Lưu & kiểm tra
               </button>
             </div>
-
             <div className="flex items-start justify-between gap-3 flex-wrap">
-              <p className="text-[11px] text-slate-400 leading-relaxed max-w-[540px]">
-                Key được lưu bằng Windows Credential Manager/Keyring. LexiGlass không lưu key trong localStorage và không gửi key vào giao diện web.
-              </p>
+              <p className="text-[11px] text-slate-400 leading-relaxed max-w-[540px]">Key được lưu bằng Windows Credential Manager/Keyring, không lưu trong localStorage.</p>
               {aiStatus.configured && (
-                <button
-                  type="button"
-                  disabled={apiBusy}
-                  onClick={removeApiKey}
-                  className="text-[11px] text-rose-200/80 hover:text-rose-100 flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-rose-300/[0.06]"
-                >
+                <button type="button" disabled={apiBusy} onClick={removeApiKey} className="text-[11px] text-rose-200/80 hover:text-rose-100 flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-rose-300/[0.06]">
                   <Trash2 className="w-3.5 h-3.5" /> Ngắt kết nối
                 </button>
               )}
             </div>
           </>
         ) : (
-          <p className="text-[11px] text-slate-400 leading-relaxed">
-            Browser Preview chỉ dùng biến môi trường phía server. Ô nhập API key chỉ xuất hiện trong bản Desktop Windows để tránh lộ khóa ở frontend.
-          </p>
+          <p className="text-[11px] text-slate-400 leading-relaxed">Browser Preview chỉ dùng biến môi trường phía server. API key chỉ nhập trực tiếp ở bản Desktop Windows.</p>
         )}
 
         {apiMessage && (
-          <div className={`text-[11px] px-3 py-2 rounded-xl border ${apiMessage.ok ? "text-emerald-100 bg-emerald-300/[0.05] border-emerald-200/[0.10]" : "text-rose-100 bg-rose-300/[0.05] border-rose-200/[0.10]"}`}>
-            {apiMessage.text}
-          </div>
+          <div className={`text-[11px] px-3 py-2 rounded-xl border ${apiMessage.ok ? "text-emerald-100 bg-emerald-300/[0.05] border-emerald-200/[0.10]" : "text-rose-100 bg-rose-300/[0.05] border-rose-200/[0.10]"}`}>{apiMessage.text}</div>
         )}
 
         <div className="pt-1 grid grid-cols-1 md:grid-cols-2 gap-2">
           {[
-            { model: NVIDIA_MODELS.FAST, title: "DeepSeek V4 Flash", desc: "Nhanh, dùng mặc định khi tra từ và tạo ví dụ." },
-            { model: NVIDIA_MODELS.QUALITY, title: "DeepSeek V4 Pro", desc: "Chậm hơn, dành cho đánh giá câu hoặc ngữ cảnh khó." },
+            { model: NVIDIA_MODELS.FAST, title: "DeepSeek V4 Flash", desc: "Model NVIDIA mặc định cho các tác vụ nâng cao." },
+            { model: NVIDIA_MODELS.QUALITY, title: "DeepSeek V4 Pro", desc: "Dùng cho đánh giá câu hoặc ngữ cảnh khó." },
           ].map((item) => {
             const selected = settings.defaultModel === item.model;
             return (
-              <button
-                key={item.model}
-                type="button"
-                onClick={() => update({ defaultModel: item.model })}
-                className={`p-3 rounded-xl border text-left transition-all ${selected ? "bg-white/[0.10] border-white/[0.15] text-white" : "bg-white/[0.025] border-white/[0.07] text-slate-300 hover:bg-white/[0.055]"}`}
-              >
-                <div className="font-semibold flex items-center gap-2">
-                  <span>{item.title}</span>
-                  {selected && <span className="w-1.5 h-1.5 rounded-full bg-slate-200" />}
-                </div>
+              <button key={item.model} type="button" onClick={() => update({ defaultModel: item.model })} className={`p-3 rounded-xl border text-left transition-all ${selected ? "bg-white/[0.10] border-white/[0.15] text-white" : "bg-white/[0.025] border-white/[0.07] text-slate-300 hover:bg-white/[0.055]"}`}>
+                <div className="font-semibold flex items-center gap-2"><span>{item.title}</span>{selected && <span className="w-1.5 h-1.5 rounded-full bg-slate-200" />}</div>
                 <p className="text-[11px] text-slate-400 mt-1 leading-normal">{item.desc}</p>
               </button>
             );
@@ -183,127 +156,50 @@ export const SettingsPanel: React.FC = () => {
         </div>
       </GlassSurface>
 
-      <GlassSurface variant="card" className="p-4 space-y-2">
-        <div className={sectionTitle}>
-          <Volume2 className={mutedIcon} />
-          <h3 className="text-sm font-bold">Phát âm</h3>
-        </div>
-        <div className={settingRow}>
-          <div>
-            <span className="font-semibold block text-slate-100">Giọng mặc định</span>
-            <span className="text-[11px] text-slate-400">Dùng cho nút nghe phát âm và bài nghe.</span>
-          </div>
-          <div className="flex p-1 rounded-xl bg-white/[0.045] border border-white/[0.08]">
-            {(["US", "UK"] as const).map((accent) => (
-              <button
-                key={accent}
-                type="button"
-                onClick={() => update({ pronunciationAccent: accent })}
-                className={`px-3 py-1.5 rounded-lg font-medium transition-colors ${settings.pronunciationAccent === accent ? "bg-white/[0.12] text-white" : "text-slate-400 hover:text-white"}`}
-              >
-                {accent === "US" ? "Mỹ" : "Anh"}
-              </button>
-            ))}
-          </div>
-        </div>
-      </GlassSurface>
+      <SpeechProviderSettings />
 
       <GlassSurface variant="card" className="p-4 space-y-1">
-        <div className={`${sectionTitle} mb-1`}>
-          <Command className={mutedIcon} />
-          <h3 className="text-sm font-bold">Cửa sổ & phím tắt</h3>
-        </div>
-
+        <div className={`${sectionTitle} mb-1`}><Command className={mutedIcon} /><h3 className="text-sm font-bold">Cửa sổ & phím tắt</h3></div>
         <div className={`${settingRow} border-b border-white/[0.06]`}>
-          <div>
-            <span className="font-semibold block text-slate-100">Tra nhanh</span>
-            <span className="text-[11px] text-slate-400">Bôi đen một từ rồi dùng phím tắt.</span>
-          </div>
+          <div><span className="font-semibold block text-slate-100">Tra nhanh / Dịch nhanh</span><span className="text-[11px] text-slate-400">Bôi đen từ, cụm hoặc câu rồi dùng phím tắt.</span></div>
           <kbd className="px-2.5 py-1 rounded-lg bg-white/[0.065] border border-white/[0.10] font-mono text-slate-200 font-semibold">{settings.globalShortcut}</kbd>
         </div>
-
         <div className={`${settingRow} border-b border-white/[0.06]`}>
-          <div>
-            <span className="font-semibold block text-slate-100">Luôn ở trên cùng</span>
-            <span className="text-[11px] text-slate-400">Giữ LexiGlass nổi trên Chrome, PDF, VS Code...</span>
-          </div>
-          <input
-            type="checkbox"
-            checked={settings.alwaysOnTop}
-            onChange={(e) => {
-              const desired = e.target.checked;
-              update({ alwaysOnTop: desired });
-              if (desired !== store.getState().isPinned) store.togglePin();
-            }}
-            className="w-4 h-4 accent-slate-300 cursor-pointer"
-          />
+          <div><span className="font-semibold block text-slate-100">Luôn ở trên cùng</span><span className="text-[11px] text-slate-400">Giữ LexiGlass nổi trên Chrome, PDF, VS Code…</span></div>
+          <input type="checkbox" checked={settings.alwaysOnTop} onChange={(e) => { const desired = e.target.checked; update({ alwaysOnTop: desired }); if (desired !== store.getState().isPinned) store.togglePin(); }} className="w-4 h-4 accent-slate-300 cursor-pointer" />
         </div>
-
         <div className={`${settingRow} border-b border-white/[0.06]`}>
-          <div>
-            <span className="font-semibold block text-slate-100">Khởi động cùng Windows</span>
-            <span className="text-[11px] text-slate-400">Sẵn sàng tra từ ngay sau khi đăng nhập.</span>
-          </div>
+          <div><span className="font-semibold block text-slate-100">Khởi động cùng Windows</span><span className="text-[11px] text-slate-400">Sẵn sàng tra/dịch sau khi đăng nhập.</span></div>
           <input type="checkbox" checked={settings.startWithWindows} onChange={(e) => update({ startWithWindows: e.target.checked })} className="w-4 h-4 accent-slate-300 cursor-pointer" />
         </div>
-
         <div className={settingRow}>
-          <div>
-            <span className="font-semibold block text-slate-100">Khởi động thu gọn</span>
-            <span className="text-[11px] text-slate-400">Mở dưới dạng bong bóng nổi nhỏ.</span>
-          </div>
+          <div><span className="font-semibold block text-slate-100">Khởi động thu gọn</span><span className="text-[11px] text-slate-400">Mở dưới dạng bong bóng nổi nhỏ.</span></div>
           <input type="checkbox" checked={settings.launchMinimized} onChange={(e) => update({ launchMinimized: e.target.checked })} className="w-4 h-4 accent-slate-300 cursor-pointer" />
         </div>
       </GlassSurface>
 
       <GlassSurface variant="card" className="p-4 space-y-4">
-        <div className={sectionTitle}>
-          <Layers className={mutedIcon} />
-          <h3 className="text-sm font-bold">Kính mờ</h3>
-        </div>
-        <p className="text-[11px] text-slate-400 -mt-2">Bản Desktop dùng Acrylic thật phía sau WebView.</p>
-
-        <div className="space-y-1.5">
-          <div className="flex justify-between text-slate-300"><span>Độ trong suốt</span><span className="font-mono text-slate-200">{settings.transparency}%</span></div>
-          <input type="range" min={40} max={90} value={settings.transparency} onChange={(e) => update({ transparency: Number(e.target.value) })} className="w-full accent-slate-300 cursor-pointer" />
-        </div>
-        <div className="space-y-1.5">
-          <div className="flex justify-between text-slate-300"><span>Độ mờ hậu cảnh</span><span className="font-mono text-slate-200">{settings.blurAmount}px</span></div>
-          <input type="range" min={8} max={36} value={settings.blurAmount} onChange={(e) => update({ blurAmount: Number(e.target.value) })} className="w-full accent-slate-300 cursor-pointer" />
-        </div>
-        <div className="space-y-1.5">
-          <div className="flex justify-between text-slate-300"><span>Ánh phản chiếu</span><span className="font-mono text-slate-200">{settings.glassIntensity}%</span></div>
-          <input type="range" min={0} max={100} value={settings.glassIntensity} onChange={(e) => update({ glassIntensity: Number(e.target.value) })} className="w-full accent-slate-300 cursor-pointer" />
-        </div>
+        <div className={sectionTitle}><Layers className={mutedIcon} /><h3 className="text-sm font-bold">Liquid Glass</h3></div>
+        <label className="flex items-center justify-between gap-3 border-b border-white/[0.06] pb-3">
+          <div><span className="font-semibold text-slate-100 block">Bật kính trong suốt</span><span className="text-[11px] text-slate-400">Tắt để dùng nền tối đặc, dễ đọc nhất.</span></div>
+          <input type="checkbox" checked={settings.liquidGlassEnabled} onChange={(e) => update({ liquidGlassEnabled: e.target.checked })} className="w-4 h-4 accent-slate-300" />
+        </label>
+        <div className="space-y-1.5"><div className="flex justify-between text-slate-300"><span>Độ trong suốt</span><span className="font-mono text-slate-200">{settings.transparency}%</span></div><input type="range" min={40} max={90} value={settings.transparency} onChange={(e) => update({ transparency: Number(e.target.value) })} className="w-full accent-slate-300 cursor-pointer" /></div>
+        <div className="space-y-1.5"><div className="flex justify-between text-slate-300"><span>Độ mờ hậu cảnh</span><span className="font-mono text-slate-200">{settings.blurAmount}px</span></div><input type="range" min={8} max={36} value={settings.blurAmount} onChange={(e) => update({ blurAmount: Number(e.target.value) })} className="w-full accent-slate-300 cursor-pointer" /></div>
+        <div className="space-y-1.5"><div className="flex justify-between text-slate-300"><span>Ánh phản chiếu</span><span className="font-mono text-slate-200">{settings.glassIntensity}%</span></div><input type="range" min={0} max={100} value={settings.glassIntensity} onChange={(e) => update({ glassIntensity: Number(e.target.value) })} className="w-full accent-slate-300 cursor-pointer" /></div>
       </GlassSurface>
 
       <GlassSurface variant="card" className="p-4 space-y-3">
-        <div className={sectionTitle}>
-          <Sliders className={mutedIcon} />
-          <h3 className="text-sm font-bold">Mục tiêu học tập</h3>
-        </div>
+        <div className={sectionTitle}><Sliders className={mutedIcon} /><h3 className="text-sm font-bold">Mục tiêu học tập</h3></div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <label className="space-y-1 text-slate-300">
-            <span>Từ mới mỗi ngày</span>
-            <input type="number" min={1} max={50} value={settings.dailyNewWordTarget} onChange={(e) => update({ dailyNewWordTarget: Number(e.target.value) })} className="w-full p-2 rounded-xl bg-white/[0.055] border border-white/[0.09] text-white outline-none focus:border-white/[0.20]" />
-          </label>
-          <label className="space-y-1 text-slate-300">
-            <span>Mục tiêu ôn tập</span>
-            <input type="number" min={5} max={200} value={settings.dailyReviewTarget} onChange={(e) => update({ dailyReviewTarget: Number(e.target.value) })} className="w-full p-2 rounded-xl bg-white/[0.055] border border-white/[0.09] text-white outline-none focus:border-white/[0.20]" />
-          </label>
+          <label className="space-y-1 text-slate-300"><span>Từ mới mỗi ngày</span><input type="number" min={1} max={50} value={settings.dailyNewWordTarget} onChange={(e) => update({ dailyNewWordTarget: Number(e.target.value) })} className="w-full p-2 rounded-xl bg-white/[0.055] border border-white/[0.09] text-white outline-none" /></label>
+          <label className="space-y-1 text-slate-300"><span>Mục tiêu ôn tập</span><input type="number" min={5} max={200} value={settings.dailyReviewTarget} onChange={(e) => update({ dailyReviewTarget: Number(e.target.value) })} className="w-full p-2 rounded-xl bg-white/[0.055] border border-white/[0.09] text-white outline-none" /></label>
         </div>
       </GlassSurface>
 
       <GlassSurface variant="inset" className="p-3 space-y-2 text-slate-400">
-        <div className="flex items-center gap-1.5 text-slate-300 font-medium">
-          <Info className="w-3.5 h-3.5" />
-          <span>Thông tin môi trường</span>
-        </div>
-        <p className="text-[11px] leading-relaxed">
-          {desktopBridge.isTauri
-            ? "Desktop Native · API key lưu trong Windows Credential Manager · NVIDIA NIM gọi trực tiếp từ Rust backend."
-            : "Browser Preview · API đi qua server proxy · Acrylic xuyên ứng dụng chỉ có trong bản Desktop."}
-        </p>
+        <div className="flex items-center gap-1.5 text-slate-300 font-medium"><Info className="w-3.5 h-3.5" /><span>Thông tin môi trường</span></div>
+        <p className="text-[11px] leading-relaxed">{desktopBridge.isTauri ? "Desktop Native · Gemini/NVIDIA keys lưu trong Windows Credential Manager · dịch cloud gọi qua Rust backend." : "Browser Preview · API đi qua server proxy · Acrylic xuyên ứng dụng chỉ có trong bản Desktop."}</p>
       </GlassSurface>
     </div>
   );
