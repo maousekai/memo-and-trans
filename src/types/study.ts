@@ -15,9 +15,9 @@ export type QueueType = "due" | "new" | "weak";
 // 5-Stage Vocabulary Acquisition Pipeline
 // 0: NEW (Introduction, pronunciation, meaning, first example)
 // 1: RECOGNITION (Multiple choice meaning)
-// 2: ACTIVE RECALL (Vietnamese -> Type English word)
+// 2: ACTIVE RECALL (Vietnamese -> Type English word/phrase)
 // 3: CONTEXT (Cloze fill-in-the-blank with real example)
-// 4: PRODUCTION (Sentence writing evaluated by AI)
+// 4: PRODUCTION (Sentence writing evaluated by AI for single words; mixed recall for phrases)
 // 5: MATURE (Mixed retention check)
 export type LearningStage = 0 | 1 | 2 | 3 | 4 | 5;
 
@@ -51,7 +51,7 @@ export interface WeaknessProfile {
 
 export interface ReviewLog {
   id: string;
-  wordId: string;
+  wordId: string; // Generic learning-item id kept for backward compatibility.
   cardType: CardType;
   rating: FSRSRating;
   reviewedAt: string;
@@ -60,6 +60,7 @@ export interface ReviewLog {
 }
 
 export interface SavedWord {
+  kind?: "word";
   id: string;
   word: string;
   normalizedWord: string;
@@ -79,10 +80,35 @@ export interface SavedWord {
   history: ReviewLog[];
 }
 
+export interface SavedPhrase {
+  kind: "phrase";
+  id: string;
+  sourceText: string;
+  normalizedSource: string;
+  translation: string;
+  alternativeTranslations: string[];
+  createdAt: string;
+  lastReviewedAt: string | null;
+  sourceContext?: string;
+  tags: string[];
+  notes: string;
+  mastery: number;
+  favorite: boolean;
+  isKnown: boolean;
+  learningStage: LearningStage;
+  fsrs: FSRSCardData;
+  weaknesses: WeaknessProfile;
+  personalizedWeakness?: PersonalizedWeakness;
+  history: ReviewLog[];
+}
+
+export type LearningItem = SavedWord | SavedPhrase;
+
 export interface GeneratedFlashcard {
   id: string;
   wordId: string;
   word: string;
+  itemKind?: "word" | "phrase";
   type: CardType;
   learningStage?: LearningStage;
   prompt: string;
