@@ -7,7 +7,6 @@ import { FlashcardReview } from "../flashcards/FlashcardReview";
 import { StudyAudioControls } from "../flashcards/StudyAudioControls";
 import { StudyDashboard } from "./StudyDashboard";
 import { SettingsPanel } from "../settings/SettingsPanel";
-import { SpeechProviderSettings } from "../settings/SpeechProviderSettings";
 import { BookOpen, Brain, BarChart3, Settings, Minimize2, Pin, X, CheckCircle2, Layers } from "lucide-react";
 
 export const FullStudyWindow: React.FC = () => {
@@ -139,12 +138,7 @@ export const FullStudyWindow: React.FC = () => {
             </div>
           )}
           {studyTab === "dashboard" && <StudyDashboard />}
-          {studyTab === "settings" && (
-            <div className="space-y-4">
-              <SpeechProviderSettings />
-              <SettingsPanel />
-            </div>
-          )}
+          {studyTab === "settings" && <SettingsPanel />}
         </main>
       </div>
     </GlassSurface>
