@@ -12,10 +12,11 @@ export const DictionaryHeader: React.FC = () => {
   const savedWords = useAppStore((s) => s.savedWords);
   const liquidGlassEnabled = useAppStore((s) => s.settings.liquidGlassEnabled);
 
-  const suggestions = useMemo(
-    () => wordSuggestionService.suggest(searchQuery, savedWords, 5),
-    [searchQuery, savedWords],
-  );
+  const suggestions = useMemo(() => {
+    const trimmed = searchQuery.trim();
+    if (!trimmed || /\s/.test(trimmed)) return [];
+    return wordSuggestionService.suggest(trimmed, savedWords, 5);
+  }, [searchQuery, savedWords]);
 
   useEffect(() => {
     const trimmed = searchQuery.trim().toLowerCase();
@@ -30,8 +31,8 @@ export const DictionaryHeader: React.FC = () => {
     return () => window.clearTimeout(timer);
   }, [searchQuery, suggestions]);
 
-  const handleSearch = (word: string) => {
-    store.searchWord(word);
+  const handleSearch = (value: string) => {
+    store.submitQuery(value);
   };
 
   const openSettings = async () => {
@@ -63,7 +64,7 @@ export const DictionaryHeader: React.FC = () => {
           <GlassButton
             variant="icon"
             size="sm"
-            tooltip="Cài đặt & NVIDIA API"
+            tooltip="Cài đặt AI & ứng dụng"
             onClick={openSettings}
           >
             <Settings className="w-3.5 h-3.5 text-slate-400 hover:text-white" />
@@ -96,7 +97,7 @@ export const DictionaryHeader: React.FC = () => {
         onSearch={handleSearch}
         suggestions={suggestions}
         isLoading={isLoading}
-        placeholder="Tra từ tiếng Anh..."
+        placeholder="Tra từ hoặc dịch cụm/câu tiếng Anh..."
       />
     </div>
   );
