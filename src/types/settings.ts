@@ -1,6 +1,7 @@
 export type AppTheme = "auto" | "light" | "dark";
 export type PronunciationAccent = "US" | "UK";
 export type SpeechProvider = "nvidia-magpie" | "system";
+export type TranslationProviderPreference = "auto" | "gemini" | "nvidia";
 
 export const NVIDIA_MODELS = {
   FAST: "deepseek-ai/deepseek-v4-flash-0731",
@@ -36,13 +37,14 @@ export interface AppSettings {
   dailyNewWordTarget: number;
   dailyReviewTarget: number;
   useDemoDataWhenNoKey: boolean;
+  translationProvider: TranslationProviderPreference;
+  translationOfflineOnly: boolean;
+  translationAnalysisEnabled: boolean;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
   defaultModel: NVIDIA_MODELS.FAST,
   pronunciationAccent: "US",
-  // NVIDIA currently exposes MiniMax on NIM as text/reasoning models, not TTS.
-  // Magpie is NVIDIA's hosted speech model and uses the same nvapi key.
   speechProvider: "nvidia-magpie",
   speechVoice: NVIDIA_TTS.DEFAULT_VOICE,
   speechRate: 0.92,
@@ -59,4 +61,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   dailyNewWordTarget: 5,
   dailyReviewTarget: 25,
   useDemoDataWhenNoKey: true,
+  translationProvider: "auto",
+  translationOfflineOnly: false,
+  translationAnalysisEnabled: true,
 };
