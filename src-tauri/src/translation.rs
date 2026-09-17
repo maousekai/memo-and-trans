@@ -55,7 +55,6 @@ pub async fn get_gemini_key_status() -> Result<GeminiKeyStatus, String> {
 pub async fn save_gemini_api_key(key: String) -> Result<(), String> {
     let entry = gemini_entry()?;
     if key.trim().is_empty() {
-        // Deleting a missing key is harmless from the user's point of view.
         let _ = entry.delete_password();
         return Ok(());
     }
@@ -96,7 +95,10 @@ pub async fn query_gemini(
         "generationConfig": {
             "temperature": 0.05,
             "maxOutputTokens": 900,
-            "responseMimeType": "application/json"
+            "responseMimeType": "application/json",
+            "thinkingConfig": {
+                "thinkingLevel": "minimal"
+            }
         }
     });
 
