@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from "react";
 import { DictionaryEntry } from "../types/dictionary";
-import { SavedWord, QueueType, GeneratedFlashcard, FSRSRating, StudyDashboardStats } from "../types/study";
+import { SavedWord, SavedPhrase, LearningItem, QueueType, GeneratedFlashcard, FSRSRating, StudyDashboardStats } from "../types/study";
 import { WindowMode } from "../types/desktop";
 import { AppSettings, DEFAULT_SETTINGS, NVIDIA_MODELS } from "../types/settings";
 import type { QueryMode, TranslationResult } from "../types/translation";
@@ -8,7 +8,12 @@ import { storageService } from "../services/database/storageService";
 import { aiService } from "../services/ai/nvidiaProvider";
 import { desktopBridge, BrowserDesktopBridge } from "../services/desktop/desktopBridge";
 import { DEMO_DICTIONARY_ENTRIES } from "../data/demoEntries";
-import { generateFlashcards, selectSmartCardType } from "../services/fsrs/fsrsEngine";
+import {
+  generateFlashcards,
+  selectSmartCardType,
+  generatePhraseFlashcards,
+  selectSmartPhraseCardType,
+} from "../services/fsrs/fsrsEngine";
 import { wordSuggestionService } from "../services/search/wordSuggestionService";
 import { localDictionaryService } from "../services/dictionary/localDictionaryService";
 import { classifyInput } from "../services/translation/inputClassifier";
@@ -36,6 +41,7 @@ interface AppState {
   error: string | null;
   isDemoEntry: boolean;
   savedWords: SavedWord[];
+  savedPhrases: SavedPhrase[];
   settings: AppSettings;
   aiStatus: {
     configured: boolean;
@@ -107,6 +113,7 @@ let state: AppState = {
   error: null,
   isDemoEntry: true,
   savedWords: storageService.getAllWords(),
+  savedPhrases: storageService.getAllPhrases(),
   settings: initialSettings,
   aiStatus: {
     configured: false,
@@ -131,37 +138,48 @@ function updateState(partial: Partial<AppState>) {
   notify();
 }
 
-function buildStudyQueue(type: QueueType, words: SavedWord[]): GeneratedFlashcard[] {
+function isWeak(item: LearningItem): boolean {
+  return item.fsrs.lapses > 0 ||
+    item.weaknesses.meaningErrors > 0 ||
+    item.weaknesses.spellingErrors > 0 ||
+    item.weaknesses.listeningErrors > 0 ||
+    item.weaknesses.contextErrors > 0 ||
+    item.weaknesses.productionErrors > 0 ||
+    item.mastery < 50;
+}
+
+function buildStudyQueue(type: QueueType, words: SavedWord[], phrases: SavedPhrase[]): GeneratedFlashcard[] {
   const now = new Date();
-  let candidateWords: SavedWord[] = [];
+  const items: LearningItem[] = [...words, ...phrases];
+  let candidates: LearningItem[] = [];
 
   if (type === "due") {
-    candidateWords = words
-      .filter((word) => !word.isKnown && new Date(word.fsrs.due).getTime() <= now.getTime())
+    candidates = items
+      .filter((item) => !item.isKnown && new Date(item.fsrs.due).getTime() <= now.getTime())
       .sort((a, b) => new Date(a.fsrs.due).getTime() - new Date(b.fsrs.due).getTime());
   } else if (type === "new") {
-    candidateWords = words
-      .filter((word) => !word.isKnown && word.fsrs.reps === 0)
+    candidates = items
+      .filter((item) => !item.isKnown && item.fsrs.reps === 0)
+      .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
       .slice(0, state.settings.dailyNewWordTarget);
   } else if (type === "weak") {
-    candidateWords = words
-      .filter(
-        (word) =>
-          !word.isKnown &&
-          (word.fsrs.lapses > 0 ||
-            word.weaknesses.meaningErrors > 0 ||
-            word.weaknesses.spellingErrors > 0 ||
-            word.weaknesses.listeningErrors > 0 ||
-            word.weaknesses.contextErrors > 0 ||
-            word.weaknesses.productionErrors > 0 ||
-            word.mastery < 50),
-      )
+    candidates = items
+      .filter((item) => !item.isKnown && isWeak(item))
       .sort((a, b) => a.mastery - b.mastery)
-      .slice(0, 10);
+      .slice(0, 12);
   }
 
   const generated: GeneratedFlashcard[] = [];
-  candidateWords.forEach((word) => {
+  candidates.forEach((item) => {
+    if (item.kind === "phrase") {
+      const allCards = generatePhraseFlashcards(item);
+      const preferredType = selectSmartPhraseCardType(item);
+      const selected = allCards.find((card) => card.type === preferredType) || allCards[0];
+      if (selected) generated.push(selected);
+      return;
+    }
+
+    const word = item as SavedWord;
     const allCards = generateFlashcards(word);
     const preferredType = selectSmartCardType(word);
     const selected = allCards.find((card) => card.type === preferredType) || allCards[0];
@@ -169,6 +187,13 @@ function buildStudyQueue(type: QueueType, words: SavedWord[]): GeneratedFlashcar
   });
 
   return generated;
+}
+
+function refreshLearningState() {
+  updateState({
+    savedWords: storageService.getAllWords(),
+    savedPhrases: storageService.getAllPhrases(),
+  });
 }
 
 export const store = {
@@ -183,6 +208,7 @@ export const store = {
   init: async () => {
     try {
       storageService.saveSettings(state.settings);
+      refreshLearningState();
 
       const status = await aiService.checkStatus();
       updateState({ aiStatus: status });
@@ -358,19 +384,14 @@ export const store = {
       isDemoEntry: instantSource === "demo",
     });
 
-    if (instantEntry) {
-      wordSuggestionService.recordSuccessfulSearch(instantEntry.normalizedWord);
-    }
+    if (instantEntry) wordSuggestionService.recordSuccessfulSearch(instantEntry.normalizedWord);
 
     const publicPromise = instantEntry
       ? Promise.resolve<DictionaryEntry | null>(null)
       : localDictionaryService.lookupPublic(normalized, 1400);
 
     const aiPromise = state.aiStatus.configured
-      ? withDeadline(
-          aiService.lookupWord(normalized, state.settings.defaultModel, true),
-          4700,
-        )
+      ? withDeadline(aiService.lookupWord(normalized, state.settings.defaultModel, true), 4700)
       : null;
 
     let fastEntry = instantEntry;
@@ -453,31 +474,25 @@ export const store = {
 
   saveCurrentPhrase: () => {
     if (!state.currentTranslation) return;
-    const item = {
-      id: `phrase_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-      sourceText: state.currentTranslation.sourceText,
-      translation: state.currentTranslation.translatedText,
-      alternatives: state.currentTranslation.alternativeTranslations,
-      createdAt: new Date().toISOString(),
-    };
-    try {
-      const key = "lexiglass_saved_phrases_v1";
-      const raw = localStorage.getItem(key);
-      const existing = raw ? JSON.parse(raw) : [];
-      const normalized = item.sourceText.trim().toLowerCase();
-      const filtered = Array.isArray(existing)
-        ? existing.filter((entry: any) => String(entry?.sourceText || "").trim().toLowerCase() !== normalized)
-        : [];
-      localStorage.setItem(key, JSON.stringify([item, ...filtered].slice(0, 1000)));
-    } catch {
-      // Saving a phrase is optional; translation remains usable if persistence fails.
-    }
+    storageService.savePhrase(
+      state.currentTranslation.sourceText,
+      state.currentTranslation.translatedText,
+      state.currentTranslation.alternativeTranslations,
+      { tags: ["Phrase", state.queryMode === "translation_paragraph" ? "Paragraph" : "Translation"] },
+    );
+    refreshLearningState();
+    store.setQueueType(state.queueType);
+  },
+
+  isCurrentPhraseSaved: (): boolean => {
+    if (!state.currentTranslation) return false;
+    return Boolean(storageService.getPhraseBySource(state.currentTranslation.sourceText));
   },
 
   saveCurrentWord: (tags?: string[], notes?: string) => {
     if (!state.currentEntry) return;
     storageService.saveWord(state.currentEntry, { tags, notes });
-    updateState({ savedWords: storageService.getAllWords() });
+    refreshLearningState();
   },
 
   isCurrentWordSaved: (): boolean => {
@@ -487,28 +502,39 @@ export const store = {
 
   updateSavedWord: (id: string, updates: Partial<SavedWord>) => {
     storageService.updateWord(id, updates);
-    updateState({ savedWords: storageService.getAllWords() });
+    refreshLearningState();
+  },
+
+  updateSavedPhrase: (id: string, updates: Partial<SavedPhrase>) => {
+    storageService.updatePhrase(id, updates);
+    refreshLearningState();
   },
 
   deleteSavedWord: (id: string) => {
     storageService.deleteWord(id);
-    updateState({ savedWords: storageService.getAllWords() });
+    refreshLearningState();
+    store.setQueueType(state.queueType);
+  },
+
+  deleteSavedPhrase: (id: string) => {
+    storageService.deletePhrase(id);
+    refreshLearningState();
     store.setQueueType(state.queueType);
   },
 
   toggleFavorite: (id: string) => {
     storageService.toggleFavorite(id);
-    updateState({ savedWords: storageService.getAllWords() });
+    refreshLearningState();
   },
 
   toggleKnown: (id: string) => {
     storageService.toggleKnown(id);
-    updateState({ savedWords: storageService.getAllWords() });
+    refreshLearningState();
   },
 
   resetProgress: (id: string) => {
     storageService.resetProgress(id);
-    updateState({ savedWords: storageService.getAllWords() });
+    refreshLearningState();
   },
 
   updateSettings: (newSettings: Partial<AppSettings>) => {
@@ -518,7 +544,7 @@ export const store = {
   },
 
   setQueueType: (type: QueueType) => {
-    const cards = buildStudyQueue(type, state.savedWords);
+    const cards = buildStudyQueue(type, state.savedWords, state.savedPhrases);
     updateState({
       queueType: type,
       studyCards: cards,
@@ -536,10 +562,15 @@ export const store = {
     if (!currentCard) return;
 
     const isMistake = rating === "again" || rating === "hard";
-    storageService.recordReview(currentCard.wordId, currentCard.type, rating, isMistake);
+    if (currentCard.itemKind === "phrase") {
+      storageService.recordPhraseReview(currentCard.wordId, currentCard.type, rating, isMistake);
+    } else {
+      storageService.recordReview(currentCard.wordId, currentCard.type, rating, isMistake);
+    }
 
     updateState({
       savedWords: storageService.getAllWords(),
+      savedPhrases: storageService.getAllPhrases(),
       activeCardIndex: state.activeCardIndex + 1,
       isAnswerRevealed: false,
     });
