@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import {
   Bookmark,
+  BookmarkCheck,
   Check,
   Copy,
   Languages,
@@ -17,10 +18,14 @@ export const TranslationView: React.FC = () => {
   const result = useAppStore((s) => s.currentTranslation);
   const queryMode = useAppStore((s) => s.queryMode);
   const isAnalyzing = useAppStore((s) => s.isAnalyzingTranslation);
+  const savedPhrases = useAppStore((s) => s.savedPhrases);
   const [copied, setCopied] = useState(false);
-  const [saved, setSaved] = useState(false);
+  const [savedPulse, setSavedPulse] = useState(false);
 
   if (!result) return null;
+
+  const normalizedSource = result.sourceText.trim().toLowerCase().replace(/\s+/g, " ");
+  const alreadySaved = savedPhrases.some((item) => item.normalizedSource === normalizedSource);
 
   const copyTranslation = async () => {
     await navigator.clipboard.writeText(result.translatedText);
@@ -30,8 +35,8 @@ export const TranslationView: React.FC = () => {
 
   const savePhrase = () => {
     store.saveCurrentPhrase();
-    setSaved(true);
-    window.setTimeout(() => setSaved(false), 1500);
+    setSavedPulse(true);
+    window.setTimeout(() => setSavedPulse(false), 1200);
   };
 
   const modeLabel = queryMode === "translation_paragraph"
@@ -87,10 +92,14 @@ export const TranslationView: React.FC = () => {
           <button
             type="button"
             onClick={savePhrase}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] text-slate-300 border border-white/10 bg-white/[0.045] hover:bg-white/[0.08]"
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] border transition-colors ${
+              alreadySaved
+                ? "text-cyan-100 border-cyan-300/[0.22] bg-cyan-300/[0.08]"
+                : "text-slate-300 border-white/10 bg-white/[0.045] hover:bg-white/[0.08]"
+            }`}
           >
-            {saved ? <Check className="w-3.5 h-3.5 text-emerald-300" /> : <Bookmark className="w-3.5 h-3.5" />}
-            {saved ? "Đã lưu" : "Lưu cụm/câu"}
+            {alreadySaved || savedPulse ? <BookmarkCheck className="w-3.5 h-3.5 text-cyan-200" /> : <Bookmark className="w-3.5 h-3.5" />}
+            {alreadySaved || savedPulse ? "Đã lưu vào Sổ học" : "Lưu cụm/câu"}
           </button>
         </div>
       </div>
