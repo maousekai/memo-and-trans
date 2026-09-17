@@ -3,6 +3,7 @@ import {
   FSRSCardData,
   FSRSRating,
   SavedWord,
+  SavedPhrase,
   GeneratedFlashcard,
   CardType,
   WeaknessProfile,
@@ -44,8 +45,6 @@ export function createDefaultWeaknessProfile(): WeaknessProfile {
 }
 
 export function createDefaultPersonalizedWeakness(): PersonalizedWeakness {
-  // New words start neutral instead of pretending the learner already has 80%
-  // recall in every skill. Evidence from reviews moves each skill independently.
   return {
     meaningRecall: 0.5,
     spellingRecall: 0.5,
@@ -123,13 +122,11 @@ export function processFSRSReview(
   };
 }
 
-// Learning stage answers HOW to review. FSRS above answers WHEN to review.
 export function advanceLearningStage(
   currentStage: LearningStage = 0,
   rating: FSRSRating,
 ): LearningStage {
   if (rating === "again") {
-    // Critical fix: failing a brand-new word must not promote Stage 0 -> Stage 1.
     if (currentStage === 0) return 0;
     return Math.max(1, currentStage - 1) as LearningStage;
   }
@@ -221,14 +218,30 @@ export function selectSmartCardType(word: SavedWord): CardType {
         { type: "vi_to_en", score: skill.spellingRecall },
         { type: "listening", score: skill.listeningRecall },
         { type: "cloze", score: skill.contextRecall },
-        // Production remains in the mature mix, but its score decides whether
-        // it deserves attention instead of appearing randomly.
         { type: "sentence_production", score: skill.productionRecall + 0.04 },
       ];
       skills.sort((a, b) => a.score - b.score);
       return skills[0].type;
     }
   }
+}
+
+export function selectSmartPhraseCardType(phrase: SavedPhrase): CardType {
+  const stage = phrase.learningStage ?? 0;
+  const skill = phrase.personalizedWeakness || createDefaultPersonalizedWeakness();
+  if (stage === 0) return "en_to_vi";
+  if (stage === 1) return "vi_to_en";
+  if (stage === 2) return skill.listeningRecall < skill.spellingRecall ? "listening" : "vi_to_en";
+  if (stage === 3) return "cloze";
+
+  const choices: Array<{ type: CardType; score: number }> = [
+    { type: "en_to_vi", score: skill.meaningRecall },
+    { type: "vi_to_en", score: skill.spellingRecall },
+    { type: "listening", score: skill.listeningRecall },
+    { type: "cloze", score: skill.contextRecall },
+  ];
+  choices.sort((a, b) => a.score - b.score);
+  return choices[0].type;
 }
 
 export function generateFlashcards(word: SavedWord): GeneratedFlashcard[] {
@@ -244,6 +257,7 @@ export function generateFlashcards(word: SavedWord): GeneratedFlashcard[] {
     id: `${word.id}-en_to_vi`,
     wordId: word.id,
     word: word.word,
+    itemKind: "word",
     type: "en_to_vi",
     learningStage: 0,
     prompt: word.word,
@@ -264,6 +278,7 @@ export function generateFlashcards(word: SavedWord): GeneratedFlashcard[] {
     id: `${word.id}-context_meaning`,
     wordId: word.id,
     word: word.word,
+    itemKind: "word",
     type: "context_meaning",
     learningStage: 1,
     prompt: firstExample?.english
@@ -279,6 +294,7 @@ export function generateFlashcards(word: SavedWord): GeneratedFlashcard[] {
     id: `${word.id}-vi_to_en`,
     wordId: word.id,
     word: word.word,
+    itemKind: "word",
     type: "vi_to_en",
     learningStage: 2,
     prompt: vietnamese,
@@ -291,6 +307,7 @@ export function generateFlashcards(word: SavedWord): GeneratedFlashcard[] {
     id: `${word.id}-listening`,
     wordId: word.id,
     word: word.word,
+    itemKind: "word",
     type: "listening",
     learningStage: 2,
     prompt: "Nghe phát âm và gõ lại từ vựng tiếng Anh:",
@@ -307,6 +324,7 @@ export function generateFlashcards(word: SavedWord): GeneratedFlashcard[] {
         id: `${word.id}-cloze`,
         wordId: word.id,
         word: word.word,
+        itemKind: "word",
         type: "cloze",
         learningStage: 3,
         prompt: firstExample.english.replace(regex, "________"),
@@ -318,13 +336,12 @@ export function generateFlashcards(word: SavedWord): GeneratedFlashcard[] {
     }
   }
 
-  // Production is gated. A newly-saved word can never jump directly into this
-  // expensive/open-ended exercise merely because cards were generated.
   if (stage >= 4) {
     cards.push({
       id: `${word.id}-sentence_production`,
       wordId: word.id,
       word: word.word,
+      itemKind: "word",
       type: "sentence_production",
       learningStage: 4,
       prompt: `Đặt một câu tiếng Anh tự nhiên sử dụng từ "${word.word}".`,
@@ -332,6 +349,90 @@ export function generateFlashcards(word: SavedWord): GeneratedFlashcard[] {
       expectedAnswer: word.word,
       collocationsHint: dictionary.commonCollocations.slice(0, 3),
       vietnameseMeaning: vietnamese,
+    });
+  }
+
+  return cards;
+}
+
+const PHRASE_STOPWORDS = new Set([
+  "a", "an", "the", "to", "of", "for", "in", "on", "at", "by", "with", "and", "or",
+  "is", "are", "was", "were", "be", "been", "being", "this", "that", "these", "those",
+]);
+
+function buildPhraseCloze(sourceText: string): { prompt: string; answer: string } | null {
+  const tokens = sourceText.match(/[A-Za-z]+(?:['-][A-Za-z]+)*/g) || [];
+  const candidates = tokens
+    .filter((token) => token.length >= 3 && !PHRASE_STOPWORDS.has(token.toLowerCase()))
+    .sort((a, b) => b.length - a.length);
+  const answer = candidates[0] || tokens.find((token) => token.length >= 2);
+  if (!answer) return null;
+  const escaped = answer.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return {
+    prompt: sourceText.replace(new RegExp(`\\b${escaped}\\b`, "i"), "________"),
+    answer,
+  };
+}
+
+export function generatePhraseFlashcards(phrase: SavedPhrase): GeneratedFlashcard[] {
+  const source = phrase.sourceText.trim();
+  const translation = phrase.translation.trim();
+  const cards: GeneratedFlashcard[] = [
+    {
+      id: `${phrase.id}-en_to_vi`,
+      wordId: phrase.id,
+      word: source,
+      itemKind: "phrase",
+      type: "en_to_vi",
+      learningStage: 0,
+      prompt: source,
+      promptSecondary: "Cụm/câu đã lưu",
+      expectedAnswer: translation,
+      audioText: source,
+      vietnameseMeaning: translation,
+    },
+    {
+      id: `${phrase.id}-vi_to_en`,
+      wordId: phrase.id,
+      word: source,
+      itemKind: "phrase",
+      type: "vi_to_en",
+      learningStage: 1,
+      prompt: translation,
+      promptSecondary: "Gõ lại cụm/câu tiếng Anh tự nhiên",
+      expectedAnswer: source,
+      audioText: source,
+      vietnameseMeaning: translation,
+    },
+    {
+      id: `${phrase.id}-listening`,
+      wordId: phrase.id,
+      word: source,
+      itemKind: "phrase",
+      type: "listening",
+      learningStage: 2,
+      prompt: "Nghe và gõ lại cụm/câu tiếng Anh:",
+      audioText: source,
+      expectedAnswer: source,
+      vietnameseMeaning: translation,
+    },
+  ];
+
+  const cloze = buildPhraseCloze(source);
+  if (cloze) {
+    cards.push({
+      id: `${phrase.id}-cloze`,
+      wordId: phrase.id,
+      word: source,
+      itemKind: "phrase",
+      type: "cloze",
+      learningStage: 3,
+      prompt: cloze.prompt,
+      promptSecondary: translation,
+      expectedAnswer: cloze.answer,
+      audioText: source,
+      contextSentence: source,
+      vietnameseMeaning: translation,
     });
   }
 
