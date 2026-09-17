@@ -22,7 +22,7 @@ export interface DesktopBridge {
   startDragging: () => Promise<void>;
   captureSelectedText: () => Promise<string | null>;
   sampleBackgroundTone: () => Promise<BackgroundSample>;
-  registerGlobalShortcut: (shortcut: string, callback: () => void) => Promise<boolean>;
+  registerGlobalShortcut: (shortcut: string, callback: (selectedText?: string) => void) => Promise<boolean>;
   unregisterGlobalShortcut: (shortcut: string) => Promise<void>;
   minimizeToBubble: () => Promise<void>;
   closeWindow: () => Promise<void>;
