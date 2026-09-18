@@ -157,6 +157,33 @@ function tokenize(value: string): Set<string> {
   );
 }
 
+const REVERSE_SEMANTIC_GROUPS: Record<string, string[]> = {
+  "profession or job": ["occupation", "profession", "employment", "career"],
+  "a profession or job": ["occupation", "profession", "employment", "career"],
+  "job or profession": ["occupation", "profession", "employment", "career"],
+  "work that a person does": ["occupation", "profession", "employment", "career"],
+  "persons job or profession": ["occupation", "profession", "employment", "career"],
+};
+
+function curatedReverseSuggestions(text: string, limit: number): ReverseSuggestion[] {
+  const group = REVERSE_SEMANTIC_GROUPS[normalize(text)];
+  if (!group) return [];
+
+  return group
+    .map((word, index) => {
+      const entry = TOEIC_CORE_ENTRIES[word];
+      const firstMeaning = entry?.partsOfSpeech?.[0]?.meanings?.[0];
+      if (!entry || !firstMeaning) return null;
+      return {
+        word,
+        meaning: firstMeaning.vietnamese,
+        score: Math.max(0.75, 0.99 - index * 0.05),
+      } satisfies ReverseSuggestion;
+    })
+    .filter((item): item is ReverseSuggestion => Boolean(item))
+    .slice(0, limit);
+}
+
 export function lookupLocalPhrase(text: string): TranslationResult | null {
   const startedAt = performance.now();
   const key = normalize(text);
@@ -193,6 +220,9 @@ export function lookupLocalPhrase(text: string): TranslationResult | null {
 }
 
 export function buildReverseSuggestions(text: string, limit = 4): ReverseSuggestion[] {
+  const curated = curatedReverseSuggestions(text, limit);
+  if (curated.length) return curated;
+
   const queryTokens = tokenize(text);
   if (!queryTokens.size) return [];
 

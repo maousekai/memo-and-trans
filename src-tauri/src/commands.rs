@@ -246,15 +246,17 @@ pub async fn query_nvidia_nim(
     model: String,
     prompt: String,
     temperature: Option<f32>,
+    timeout_ms: Option<u64>,
 ) -> Result<String, String> {
     let api_key = security::get_api_key()
         .map_err(|_| "NVIDIA API key not configured in Windows Credential Manager".to_string())?;
 
     let body = build_nim_request_body(&model, &prompt, temperature.unwrap_or(0.1));
+    let timeout = timeout_ms.unwrap_or(4500).clamp(500, 4500);
 
     let resp = shared_http_client()
         .post("https://integrate.api.nvidia.com/v1/chat/completions")
-        .timeout(Duration::from_millis(4500))
+        .timeout(Duration::from_millis(timeout))
         .header("Authorization", format!("Bearer {}", api_key))
         .header("Content-Type", "application/json")
         .json(&body)
@@ -262,7 +264,7 @@ pub async fn query_nvidia_nim(
         .await
         .map_err(|e| {
             if e.is_timeout() {
-                "NVIDIA model exceeded the 4.5 second enrichment budget".to_string()
+                format!("NVIDIA model exceeded the {}ms request budget", timeout)
             } else {
                 format!("Network request failed: {}", e)
             }

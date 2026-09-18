@@ -9,6 +9,7 @@ import {
   Search,
   Sparkles,
   Volume2,
+  ArrowRight,
 } from "lucide-react";
 import { GlassSurface } from "../glass/GlassSurface";
 import { speechService } from "../../services/pronunciation/speechService";
@@ -116,8 +117,20 @@ export const TranslationView: React.FC = () => {
       )}
 
       {result.isPartial && result.segmentCount && result.segmentCount > 1 && (
-        <div className="rounded-xl border border-amber-300/[0.15] bg-amber-300/[0.04] px-3 py-2 text-[11px] text-amber-100/80">
-          Đoạn dài được chia theo ranh giới câu/từ. Đang hiển thị phần {result.segmentIndex || 1}/{result.segmentCount}; không có từ nào bị cắt giữa chừng.
+        <div className="rounded-xl border border-amber-300/[0.15] bg-amber-300/[0.04] px-3 py-2 text-[11px] text-amber-100/80 flex items-center justify-between gap-3">
+          <span>
+            Đã dịch phần {result.segmentIndex || 1}/{result.segmentCount}. Đoạn được chia theo ranh giới câu/từ, không cắt giữa chữ.
+          </span>
+          {(result.segmentIndex || 1) < result.segmentCount && (
+            <button
+              type="button"
+              onClick={() => store.translateNextSegment()}
+              className="shrink-0 inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-amber-200/[0.18] bg-amber-200/[0.06] hover:bg-amber-200/[0.10] text-amber-50 font-semibold"
+            >
+              Tiếp tục
+              <ArrowRight className="w-3.5 h-3.5" />
+            </button>
+          )}
         </div>
       )}
 
