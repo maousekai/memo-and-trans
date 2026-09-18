@@ -14,6 +14,7 @@ export const QuickLookup: React.FC = () => {
   const currentTranslation = useAppStore((s) => s.currentTranslation);
   const queryMode = useAppStore((s) => s.queryMode);
   const isLoading = useAppStore((s) => s.isLoading);
+  const translationProgressText = useAppStore((s) => s.translationProgressText);
   const error = useAppStore((s) => s.error);
   const isDemoEntry = useAppStore((s) => s.isDemoEntry);
   const settings = useAppStore((s) => s.settings);
@@ -95,7 +96,7 @@ export const QuickLookup: React.FC = () => {
             </div>
             <p className="text-[11px] text-center text-slate-400 flex items-center justify-center gap-1.5">
               {!isDictionaryMode && <Languages className="w-3.5 h-3.5 text-cyan-300" />}
-              {isDictionaryMode ? "Đang tra từ điển…" : "Đang dịch Anh → Việt…"}
+              {isDictionaryMode ? "Đang tra từ điển…" : (translationProgressText || "Đang dịch Anh → Việt…")}
             </p>
           </div>
         )}

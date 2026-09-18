@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import { classifyInput } from "../src/services/translation/inputClassifier";
 import { buildReverseSuggestions } from "../src/services/translation/localPhraseService";
 import { splitTranslationSegments } from "../src/services/translation/translationService";
+import { lookupCompositionalPhrase } from "../src/services/translation/localCompositionalPhraseService";
 
 describe("v18 translation classifier regressions", () => {
   test("comma-terminated phrase stays phrase mode", () => {
@@ -45,5 +46,32 @@ describe("v18 paragraph segmentation regressions", () => {
   test("an unusually long token is never cut in the middle", () => {
     const longToken = "a".repeat(1600);
     expect(splitTranslationSegments(longToken, 1500)).toEqual([longToken]);
+  });
+});
+
+
+describe("v18.1 instant-first local phrase regressions", () => {
+  test("standing outside resolves offline immediately", () => {
+    const result = lookupCompositionalPhrase("standing outside");
+    expect(result?.translatedText).toBe("đang đứng bên ngoài");
+    expect(result?.source).toBe("local");
+    expect(result?.localStrategy).toBe("composed");
+    expect(result?.analysisStatus).toBe("pending");
+  });
+
+  test("common TOEIC Part 1 action chunks compose naturally", () => {
+    expect(lookupCompositionalPhrase("waiting for the bus")?.translatedText).toBe("đang chờ xe buýt");
+    expect(lookupCompositionalPhrase("sitting at a desk")?.translatedText).toBe("đang ngồi tại bàn làm việc");
+    expect(lookupCompositionalPhrase("walking down the street")?.translatedText).toBe("đang đi bộ dọc theo đường phố");
+  });
+
+  test("short be + V-ing clauses can stay useful even when cloud is slow", () => {
+    expect(lookupCompositionalPhrase("some people are standing outside")?.translatedText)
+      .toBe("một số người đang đứng bên ngoài");
+  });
+
+  test("common passive image-description chunks are supported", () => {
+    expect(lookupCompositionalPhrase("being loaded onto a truck")?.translatedText)
+      .toBe("đang được chất hàng lên xe tải");
   });
 });

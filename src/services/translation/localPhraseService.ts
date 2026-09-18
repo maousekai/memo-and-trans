@@ -205,6 +205,7 @@ export function lookupLocalPhrase(text: string): TranslationResult | null {
     translatedText: item.vi,
     alternativeTranslations: item.alt || [],
     source: "local",
+    localStrategy: "exact",
     confidence: 0.98,
     latencyMs: Math.max(0, Math.round(performance.now() - startedAt)),
     isPartial: false,
