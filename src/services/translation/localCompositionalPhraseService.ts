@@ -141,7 +141,6 @@ const VERB_TRANSLATIONS: Record<string, string> = {
   inspect: "kiểm tra",
   check: "kiểm tra",
   move: "di chuyển",
-  carry: "mang",
   drive: "lái",
   park: "đỗ",
   reach: "vươn tới",
