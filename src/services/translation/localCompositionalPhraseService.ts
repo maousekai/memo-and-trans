@@ -149,6 +149,13 @@ const VERB_TRANSLATIONS: Record<string, string> = {
   board: "lên",
 };
 
+const NOUN_OVERRIDE_TOKENS = new Set([
+  "people", "person", "bus", "desk", "street", "sidewalk", "pavement", "doorway",
+  "entrance", "exit", "building", "truck", "car", "bicycle", "bike", "table",
+  "chair", "shelf", "counter", "window", "door", "box", "boxes", "bag", "bags",
+  "package", "packages",
+]);
+
 const BE_FORMS = new Set(["am", "is", "are", "was", "were", "be", "been"]);
 const PREPOSITION_STARTERS = new Set([
   "outside", "inside", "near", "beside", "behind", "under", "underneath",
@@ -197,7 +204,12 @@ function meaningFromEntry(entry: DictionaryEntry, preferredPos?: string): WordIn
 function lookupWord(word: string, preferredPos?: string): WordInfo | null {
   const override = TOKEN_TRANSLATIONS[word];
   if (override && !preferredPos) {
-    return { source: word, lemma: word, vi: override, pos: "override" };
+    return {
+      source: word,
+      lemma: word,
+      vi: override,
+      pos: NOUN_OVERRIDE_TOKENS.has(word) ? "noun" : "override",
+    };
   }
 
   const entry = localDictionaryService.lookupInstant(word);
@@ -283,6 +295,8 @@ function isBoundaryToken(token: string): boolean {
 }
 
 function translateSequence(tokens: string[]): SequenceTranslation | null {
+  if (!tokens.length) return { text: "", chunks: [] };
+
   const out: string[] = [];
   const chunks: TranslationChunk[] = [];
   let index = 0;
@@ -340,9 +354,29 @@ function isPastParticiple(token: string): boolean {
   ]).has(token);
 }
 
-function normalizeVerbTail(lemma: string, tokens: string[]): string[] {
-  if (lemma === "wait" && tokens[0] === "for") return tokens.slice(1);
-  return tokens;
+function normalizeVerbPhrase(
+  verb: WordInfo,
+  tokens: string[],
+): { verb: WordInfo; tail: string[] } {
+  const prep = tokens[0];
+
+  if (verb.lemma === "wait" && prep === "for") {
+    return { verb, tail: tokens.slice(1) };
+  }
+  if (verb.lemma === "look" && prep === "for") {
+    return { verb: { ...verb, vi: "tìm" }, tail: tokens.slice(1) };
+  }
+  if (verb.lemma === "look" && prep === "at") {
+    return { verb: { ...verb, vi: "nhìn vào" }, tail: tokens.slice(1) };
+  }
+  if (verb.lemma === "talk" && (prep === "to" || prep === "with")) {
+    return { verb: { ...verb, vi: "nói chuyện với" }, tail: tokens.slice(1) };
+  }
+  if (verb.lemma === "point" && (prep === "at" || prep === "to")) {
+    return { verb: { ...verb, vi: "chỉ vào" }, tail: tokens.slice(1) };
+  }
+
+  return { verb, tail: tokens };
 }
 
 function buildResult(
@@ -438,16 +472,17 @@ export function lookupCompositionalPhrase(rawText: string): TranslationResult | 
 
   // "standing outside" / "waiting for the bus"
   if (isPresentParticiple(tokens[0])) {
-    const verb = lookupVerb(tokens[0]);
-    if (!verb) return null;
-    const tail = translateSequence(normalizeVerbTail(verb.lemma, tokens.slice(1)));
+    const rawVerb = lookupVerb(tokens[0]);
+    if (!rawVerb) return null;
+    const phrase = normalizeVerbPhrase(rawVerb, tokens.slice(1));
+    const tail = translateSequence(phrase.tail);
     if (!tail) return null;
     return buildResult(
       rawText,
-      ["đang", verb.vi, tail.text].filter(Boolean).join(" "),
+      ["đang", phrase.verb.vi, tail.text].filter(Boolean).join(" "),
       0.95,
       [
-        { source: tokens[0], target: "đang " + verb.vi, explanation: "V-ing → hành động đang diễn ra" },
+        { source: tokens[0], target: "đang " + phrase.verb.vi, explanation: "V-ing → hành động đang diễn ra" },
         ...tail.chunks,
       ],
       startedAt,
@@ -457,14 +492,15 @@ export function lookupCompositionalPhrase(rawText: string): TranslationResult | 
   // Short imperative/base-verb chunks such as "wait outside".
   const firstVerb = lookupVerb(tokens[0]);
   if (firstVerb) {
-    const tail = translateSequence(normalizeVerbTail(firstVerb.lemma, tokens.slice(1)));
+    const phrase = normalizeVerbPhrase(firstVerb, tokens.slice(1));
+    const tail = translateSequence(phrase.tail);
     if (!tail) return null;
     return buildResult(
       rawText,
-      [firstVerb.vi, tail.text].filter(Boolean).join(" "),
+      [phrase.verb.vi, tail.text].filter(Boolean).join(" "),
       0.89,
       [
-        { source: tokens[0], target: firstVerb.vi },
+        { source: tokens[0], target: phrase.verb.vi },
         ...tail.chunks,
       ],
       startedAt,
