@@ -1,3 +1,4 @@
+// @ts-nocheck -- Bun provides bun:test at runtime; production tsc should ignore runner-only globals.
 import { describe, expect, test } from "bun:test";
 import { classifyInput } from "../src/services/translation/inputClassifier";
 import { buildReverseSuggestions } from "../src/services/translation/localPhraseService";
