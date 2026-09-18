@@ -280,7 +280,7 @@ export const store = {
     await store.translateText(input, mode);
   },
 
-  translateText: async (rawText: string, mode?: QueryMode) => {
+  translateText: async (rawText: string, mode?: QueryMode, segmentIndex = 0) => {
     const text = rawText.trim();
     if (!text) return;
     const generation = ++searchGeneration;
@@ -304,6 +304,7 @@ export const store = {
       const result = await translationService.translate(text, {
         offlineOnly: state.settings.translationOfflineOnly,
         providerPreference: state.settings.translationProvider,
+        segmentIndex,
       });
       if (generation !== searchGeneration) return;
 
@@ -346,6 +347,14 @@ export const store = {
         error: String((error as any)?.message || error || "Không thể dịch văn bản lúc này."),
       });
     }
+  },
+
+
+
+  translateNextSegment: async () => {
+    const current = state.currentTranslation;
+    if (!current?.segmentCount || !current.segmentIndex || current.segmentIndex >= current.segmentCount) return;
+    await store.translateText(state.searchQuery, state.queryMode, current.segmentIndex);
   },
 
   searchWord: async (rawWord: string, forceRefresh = false) => {
