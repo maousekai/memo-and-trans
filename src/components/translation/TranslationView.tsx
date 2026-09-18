@@ -10,6 +10,7 @@ import {
   Sparkles,
   Volume2,
   ArrowRight,
+  CloudOff,
 } from "lucide-react";
 import { GlassSurface } from "../glass/GlassSurface";
 import { speechService } from "../../services/pronunciation/speechService";
@@ -161,6 +162,13 @@ export const TranslationView: React.FC = () => {
         <div className="flex items-center gap-2 text-[11px] text-slate-400 py-1">
           <Loader2 className="w-3.5 h-3.5 animate-spin text-cyan-300" />
           <span>Đang bổ sung phân tích cụm, ngữ pháp và từ đáng học…</span>
+        </div>
+      )}
+
+      {result.analysisStatus === "failed" && result.localStrategy === "composed" && (
+        <div className="flex items-center gap-2 rounded-xl border border-amber-300/[0.14] bg-amber-300/[0.035] px-3 py-2 text-[11px] text-amber-100/75">
+          <CloudOff className="w-3.5 h-3.5 shrink-0" />
+          <span>AI cloud tạm thời không phản hồi · bản dịch offline vẫn dùng được.</span>
         </div>
       )}
 
