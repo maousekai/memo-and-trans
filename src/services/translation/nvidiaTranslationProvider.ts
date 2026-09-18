@@ -42,10 +42,12 @@ export class NvidiaTranslationProvider implements TranslationProvider {
   async translate(text: string, options: TranslationRequestOptions = {}): Promise<FastTranslation> {
     if (!isTauriRuntime()) throw new Error("NVIDIA translation fallback requires Desktop mode.");
     const startedAt = performance.now();
+    const timeoutMs = Math.min(4500, Math.max(500, options.timeoutMs || 4500));
     const raw = await invokeNative<string>("query_nvidia_nim", {
       model: NVIDIA_TRANSLATION_MODEL,
       prompt: translatePrompt(text),
       temperature: 0.05,
+      timeoutMs,
     });
     const data = extractJson(raw);
     const translatedText = String(data?.translatedText || "").trim();
@@ -65,13 +67,15 @@ export class NvidiaTranslationProvider implements TranslationProvider {
   async analyze(
     text: string,
     translation: string,
-    _options: TranslationRequestOptions = {},
+    options: TranslationRequestOptions = {},
   ): Promise<TranslationAnalysis> {
     if (!isTauriRuntime()) throw new Error("NVIDIA analysis fallback requires Desktop mode.");
+    const timeoutMs = Math.min(4500, Math.max(500, options.timeoutMs || 4500));
     const raw = await invokeNative<string>("query_nvidia_nim", {
       model: NVIDIA_TRANSLATION_MODEL,
       prompt: analyzePrompt(text, translation),
       temperature: 0.05,
+      timeoutMs,
     });
     const data = extractJson(raw);
     return {
