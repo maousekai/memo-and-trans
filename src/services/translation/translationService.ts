@@ -1,10 +1,12 @@
 import type {
   FastTranslation,
   TranslationAnalysis,
+  TranslationProviderStatus,
   TranslationResult,
 } from "../../types/translation";
 import { translationCache } from "./translationCache";
 import { localPhraseService } from "./localPhraseService";
+import { localCompositionalPhraseService } from "./localCompositionalPhraseService";
 import { geminiTranslationProvider } from "./geminiProvider";
 import { nvidiaTranslationProvider } from "./nvidiaTranslationProvider";
 import type { TranslationProvider } from "./providerTypes";
@@ -18,8 +20,22 @@ export interface TranslateOptions {
 }
 
 const MAX_SEGMENT_CHARS = 1500;
-const TOTAL_CLOUD_BUDGET_MS = 4500;
-const PRIMARY_BUDGET_MS = 3000;
+
+// v18.1 uses a soft-first cloud strategy. Gemini gets a short first chance,
+// while the fallback still has enough real time to answer before the hard stop.
+const CLOUD_HARD_LIMIT_MS = 8000;
+const PRIMARY_SOFT_LIMIT_MS = 3000;
+const FALLBACK_LIMIT_MS = 4400;
+const STATUS_TIMEOUT_MS = 500;
+const PROVIDER_STATUS_TTL_MS = 1000 * 60 * 10;
+const ANALYSIS_PROVIDER_BUDGET_MS = 4500;
+
+type CachedProviderStatus = {
+  status: TranslationProviderStatus;
+  expiresAt: number;
+};
+
+const providerStatusCache = new Map<TranslationProvider["id"], CachedProviderStatus>();
 
 function withDeadline<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
@@ -61,8 +77,6 @@ export function splitTranslationSegments(rawText: string, maxChars = MAX_SEGMENT
       if (nextWhitespace > 0) {
         cutAt = nextWhitespace;
       } else {
-        // A single unusually long token is kept intact rather than being split
-        // in the middle. This can exceed maxChars, but preserves text integrity.
         cutAt = remaining.length;
       }
     }
@@ -84,6 +98,7 @@ function composeResult(sourceText: string, fast: FastTranslation): TranslationRe
     translatedText: fast.translatedText,
     alternativeTranslations: fast.alternativeTranslations || [],
     source: fast.source,
+    localStrategy: fast.localStrategy,
     confidence: fast.confidence,
     latencyMs: fast.latencyMs,
     isPartial: Boolean(fast.isPartial),
@@ -105,6 +120,36 @@ function providerOrder(preference: TranslationProviderPreference): TranslationPr
   return [geminiTranslationProvider, nvidiaTranslationProvider];
 }
 
+async function getCachedProviderStatus(
+  provider: TranslationProvider,
+  forceRefresh = false,
+): Promise<TranslationProviderStatus> {
+  const now = Date.now();
+  const cached = providerStatusCache.get(provider.id);
+  if (!forceRefresh && cached && cached.expiresAt > now) return cached.status;
+
+  try {
+    const status = await withDeadline(
+      provider.getStatus(),
+      STATUS_TIMEOUT_MS,
+      `${provider.id} status timeout`,
+    );
+    providerStatusCache.set(provider.id, {
+      status,
+      expiresAt: now + PROVIDER_STATUS_TTL_MS,
+    });
+    return status;
+  } catch {
+    // Status probing must never consume the whole user-facing translation path.
+    // If probing itself is flaky, try the actual provider request once.
+    return {
+      configured: true,
+      provider: provider.id === "gemini" ? "Google Gemini" : "NVIDIA NIM",
+      model: "unknown",
+    };
+  }
+}
+
 class TranslationService {
   async translate(rawText: string, options: TranslateOptions = {}): Promise<TranslationResult> {
     const text = rawText.trim();
@@ -115,12 +160,12 @@ class TranslationService {
     if (!Number.isInteger(requestedSegmentIndex) || requestedSegmentIndex < 0 || requestedSegmentIndex >= segments.length) {
       throw new Error("Phần văn bản cần dịch không hợp lệ.");
     }
+
     const segment = segments[requestedSegmentIndex];
     if (!segment) throw new Error("Không có văn bản hợp lệ để dịch.");
     const displaySegmentIndex = requestedSegmentIndex + 1;
 
-    // Canonical pipeline: cache/local are hard short-circuits. A cache hit is a
-    // complete response for this lookup and must never trigger another cloud call.
+    // 1) Cache is always the fastest path.
     const cached = translationCache.read(segment);
     if (cached) {
       return {
@@ -129,14 +174,30 @@ class TranslationService {
         isPartial: segments.length > 1,
         segmentIndex: displaySegmentIndex,
         segmentCount: segments.length,
-        analysisStatus: "complete",
+        analysisStatus: cached.analysisStatus || "complete",
       };
     }
 
-    const local = localPhraseService.lookup(segment);
-    if (local && (local.confidence || 0) >= 0.95) {
-      const result = {
-        ...local,
+    // 2) Deterministic exact phrases remain the safest offline answer.
+    const exactLocal = localPhraseService.lookup(segment);
+    if (exactLocal && (exactLocal.confidence || 0) >= 0.95) {
+      const result: TranslationResult = {
+        ...exactLocal,
+        isPartial: segments.length > 1,
+        segmentIndex: displaySegmentIndex,
+        segmentCount: segments.length,
+      };
+      translationCache.write(segment, result);
+      return result;
+    }
+
+    // 3) Short TOEIC-style chunks are composed locally from grammar patterns +
+    // offline dictionary data. They render immediately; cloud analysis is optional
+    // enrichment and never blocks this result.
+    const composedLocal = localCompositionalPhraseService.lookup(segment);
+    if (composedLocal && (composedLocal.confidence || 0) >= 0.88) {
+      const result: TranslationResult = {
+        ...composedLocal,
         isPartial: segments.length > 1,
         segmentIndex: displaySegmentIndex,
         segmentCount: segments.length,
@@ -149,10 +210,11 @@ class TranslationService {
       throw new Error("Không có bản dịch offline đủ tin cậy. Hãy tắt chế độ Chỉ dùng offline để sử dụng dịch cloud.");
     }
 
-    const preference = options.providerPreference || "auto";
-    const providers = providerOrder(preference);
+    // 4) Cloud-only cases get a real fallback window instead of forcing both
+    // providers into one 4.5 second slot.
+    const providers = providerOrder(options.providerPreference || "auto");
     const startedAt = performance.now();
-    const deadlineAt = startedAt + TOTAL_CLOUD_BUDGET_MS;
+    const deadlineAt = startedAt + CLOUD_HARD_LIMIT_MS;
     let lastError: unknown = null;
 
     for (let index = 0; index < providers.length; index += 1) {
@@ -161,26 +223,18 @@ class TranslationService {
       if (remainingBeforeStatus < 500) break;
 
       try {
-        const statusBudget = Math.min(600, remainingBeforeStatus);
-        const status = await withDeadline(
-          provider.getStatus(),
-          statusBudget,
-          `${provider.id} status timeout`,
-        ).catch(() => ({ configured: true, provider: provider.id, model: "unknown" }));
-
+        const status = await getCachedProviderStatus(provider);
         if (!status.configured) {
           lastError = new Error(`${status.provider} chưa được cấu hình API key.`);
           continue;
         }
 
         const remainingAfterStatus = Math.floor(deadlineAt - performance.now());
-        if (remainingAfterStatus < 500) {
-          lastError = new Error(`${provider.id} không còn đủ thời gian trong cloud budget.`);
-          break;
-        }
+        if (remainingAfterStatus < 500) break;
 
-        const providerCap = index === 0 ? PRIMARY_BUDGET_MS : 1400;
+        const providerCap = index === 0 ? PRIMARY_SOFT_LIMIT_MS : FALLBACK_LIMIT_MS;
         const translateBudget = Math.min(providerCap, remainingAfterStatus);
+        if (translateBudget < 500) break;
 
         const fast = await withDeadline(
           provider.translate(segment, { timeoutMs: translateBudget }),
@@ -202,51 +256,68 @@ class TranslationService {
       }
     }
 
-    const detail = String((lastError as any)?.message || lastError || "Không có nhà cung cấp dịch khả dụng.");
-    throw new Error(`Không thể dịch trong giới hạn ${TOTAL_CLOUD_BUDGET_MS / 1000}s. ${detail}`);
+    const detail = String((lastError as any)?.message || lastError || "").trim();
+    throw new Error(
+      `AI cloud tạm thời không phản hồi sau khi đã thử nguồn chính và dự phòng trong tối đa ${CLOUD_HARD_LIMIT_MS / 1000}s.${detail ? ` (${detail})` : ""}`,
+    );
   }
 
   async analyze(result: TranslationResult, options: TranslateOptions = {}): Promise<TranslationAnalysis> {
-    if (result.source === "local" || options.offlineOnly) {
+    if (options.offlineOnly) {
+      return localPhraseService.analyze(result.sourceText);
+    }
+
+    // Exact curated local phrases already contain deterministic explanations.
+    // Composed local phrases intentionally continue to cloud in the background.
+    if (result.localStrategy === "exact") {
       return localPhraseService.analyze(result.sourceText);
     }
 
     const providers = providerOrder(options.providerPreference || "auto");
     let lastError: unknown = null;
+
     for (const provider of providers) {
       try {
-        const status = await provider.getStatus();
-        if (!status.configured) continue;
+        const status = await getCachedProviderStatus(provider);
+        if (!status.configured) {
+          lastError = new Error(`${status.provider} chưa được cấu hình API key.`);
+          continue;
+        }
+
         const analysis = await withDeadline(
-          provider.analyze(result.sourceText, result.translatedText, { timeoutMs: 4500 }),
-          4500,
+          provider.analyze(result.sourceText, result.translatedText, { timeoutMs: ANALYSIS_PROVIDER_BUDGET_MS }),
+          ANALYSIS_PROVIDER_BUDGET_MS,
           `${provider.id} analysis timeout`,
         );
         const localReverse = localPhraseService.reverse(result.sourceText);
         return {
           ...analysis,
-          // Deterministic local semantic groups take precedence over cloud
-          // enrichment so clue-like queries cannot change after analysis.
           reverseSuggestions: (localReverse.length ? localReverse : (analysis.reverseSuggestions || [])).slice(0, 4),
         };
       } catch (error) {
         lastError = error;
       }
     }
+
     if (lastError) throw lastError;
-    return localPhraseService.analyze(result.sourceText);
+    throw new Error("Không có nhà cung cấp cloud nào sẵn sàng để bổ sung phân tích.");
   }
 
   async getStatuses() {
     const [gemini, nvidia] = await Promise.all([
-      geminiTranslationProvider.getStatus(),
-      nvidiaTranslationProvider.getStatus(),
+      getCachedProviderStatus(geminiTranslationProvider, true),
+      getCachedProviderStatus(nvidiaTranslationProvider, true),
     ]);
     return { gemini, nvidia };
   }
 
   async saveGeminiApiKey(key: string): Promise<void> {
     await geminiTranslationProvider.saveApiKey?.(key);
+    providerStatusCache.delete("gemini");
+  }
+
+  clearProviderStatusCache(): void {
+    providerStatusCache.clear();
   }
 }
 
