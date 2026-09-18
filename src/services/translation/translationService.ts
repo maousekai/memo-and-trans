@@ -225,7 +225,9 @@ class TranslationService {
         const localReverse = localPhraseService.reverse(result.sourceText);
         return {
           ...analysis,
-          reverseSuggestions: (analysis.reverseSuggestions?.length ? analysis.reverseSuggestions : localReverse).slice(0, 4),
+          // Deterministic local semantic groups take precedence over cloud
+          // enrichment so clue-like queries cannot change after analysis.
+          reverseSuggestions: (localReverse.length ? localReverse : (analysis.reverseSuggestions || [])).slice(0, 4),
         };
       } catch (error) {
         lastError = error;
