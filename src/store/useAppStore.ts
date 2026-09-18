@@ -37,6 +37,7 @@ interface AppState {
   isEnriching: boolean;
   isTranslating: boolean;
   isAnalyzingTranslation: boolean;
+  translationProgressText: string | null;
   lookupSource: LookupSource;
   error: string | null;
   isDemoEntry: boolean;
@@ -109,6 +110,7 @@ let state: AppState = {
   isEnriching: false,
   isTranslating: false,
   isAnalyzingTranslation: false,
+  translationProgressText: null,
   lookupSource: "demo",
   error: null,
   isDemoEntry: true,
@@ -273,7 +275,7 @@ export const store = {
     if (!input) return;
     const mode = classifyInput(input);
     if (mode === "dictionary") {
-      updateState({ queryMode: mode, currentTranslation: null, isTranslating: false, isAnalyzingTranslation: false });
+      updateState({ queryMode: mode, currentTranslation: null, isTranslating: false, isAnalyzingTranslation: false, translationProgressText: null });
       await store.searchWord(input);
       return;
     }
@@ -294,11 +296,19 @@ export const store = {
       isLoading: true,
       isTranslating: true,
       isAnalyzingTranslation: false,
+      translationProgressText: null,
       isEnriching: false,
       error: null,
       lookupSource: null,
       isDemoEntry: false,
     });
+
+    const slowTranslationTimer = window.setTimeout(() => {
+      if (generation !== searchGeneration || !state.isTranslating || state.currentTranslation) return;
+      updateState({
+        translationProgressText: "AI phản hồi chậm — LexiGlass đang thử nguồn dự phòng…",
+      });
+    }, 2800);
 
     try {
       const result = await translationService.translate(text, {
@@ -312,6 +322,7 @@ export const store = {
         currentTranslation: result,
         isLoading: false,
         isTranslating: false,
+        translationProgressText: null,
         error: null,
       });
 
@@ -344,8 +355,11 @@ export const store = {
         isLoading: false,
         isTranslating: false,
         isAnalyzingTranslation: false,
+        translationProgressText: null,
         error: String((error as any)?.message || error || "Không thể dịch văn bản lúc này."),
       });
+    } finally {
+      window.clearTimeout(slowTranslationTimer);
     }
   },
 
@@ -384,6 +398,7 @@ export const store = {
       currentTranslation: null,
       isTranslating: false,
       isAnalyzingTranslation: false,
+      translationProgressText: null,
       isLoading: !instantEntry,
       isEnriching: Boolean(instantEntry && state.aiStatus.configured),
       error: null,
