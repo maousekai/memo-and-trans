@@ -57,11 +57,14 @@ export function splitTranslationSegments(rawText: string, maxChars = MAX_SEGMENT
       : windowText.lastIndexOf(" ", maxChars);
 
     if (cutAt < Math.floor(maxChars * 0.4)) {
-      cutAt = maxChars;
-      while (cutAt > 1 && /[A-Za-zÀ-ỹ0-9]/.test(remaining[cutAt] || "") && /[A-Za-zÀ-ỹ0-9]/.test(remaining[cutAt - 1] || "")) {
-        cutAt -= 1;
+      const nextWhitespace = remaining.indexOf(" ", maxChars);
+      if (nextWhitespace > 0) {
+        cutAt = nextWhitespace;
+      } else {
+        // A single unusually long token is kept intact rather than being split
+        // in the middle. This can exceed maxChars, but preserves text integrity.
+        cutAt = remaining.length;
       }
-      if (cutAt < 2) cutAt = maxChars;
     }
 
     const segment = remaining.slice(0, cutAt).trim();
