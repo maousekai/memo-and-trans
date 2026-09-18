@@ -14,6 +14,7 @@ export type TranslationProviderPreference = "auto" | "gemini" | "nvidia";
 export interface TranslateOptions {
   offlineOnly?: boolean;
   providerPreference?: TranslationProviderPreference;
+  segmentIndex?: number;
 }
 
 const MAX_SEGMENT_CHARS = 1500;
@@ -107,8 +108,13 @@ class TranslationService {
     if (!text) throw new Error("Hãy nhập hoặc bôi đen văn bản tiếng Anh cần dịch.");
 
     const segments = splitTranslationSegments(text);
-    const segment = segments[0];
+    const requestedSegmentIndex = options.segmentIndex ?? 0;
+    if (!Number.isInteger(requestedSegmentIndex) || requestedSegmentIndex < 0 || requestedSegmentIndex >= segments.length) {
+      throw new Error("Phần văn bản cần dịch không hợp lệ.");
+    }
+    const segment = segments[requestedSegmentIndex];
     if (!segment) throw new Error("Không có văn bản hợp lệ để dịch.");
+    const displaySegmentIndex = requestedSegmentIndex + 1;
 
     // Canonical pipeline: cache/local are hard short-circuits. A cache hit is a
     // complete response for this lookup and must never trigger another cloud call.
@@ -118,7 +124,7 @@ class TranslationService {
         ...cached,
         sourceText: segment,
         isPartial: segments.length > 1,
-        segmentIndex: 1,
+        segmentIndex: displaySegmentIndex,
         segmentCount: segments.length,
         analysisStatus: "complete",
       };
@@ -129,7 +135,7 @@ class TranslationService {
       const result = {
         ...local,
         isPartial: segments.length > 1,
-        segmentIndex: 1,
+        segmentIndex: displaySegmentIndex,
         segmentCount: segments.length,
       };
       translationCache.write(segment, result);
@@ -143,22 +149,19 @@ class TranslationService {
     const preference = options.providerPreference || "auto";
     const providers = providerOrder(preference);
     const startedAt = performance.now();
+    const deadlineAt = startedAt + TOTAL_CLOUD_BUDGET_MS;
     let lastError: unknown = null;
 
     for (let index = 0; index < providers.length; index += 1) {
       const provider = providers[index];
-      const elapsed = performance.now() - startedAt;
-      const remaining = TOTAL_CLOUD_BUDGET_MS - elapsed;
-      if (remaining < 250) break;
-
-      const budget = index === 0
-        ? Math.min(PRIMARY_BUDGET_MS, remaining)
-        : Math.min(1400, remaining);
+      const remainingBeforeStatus = Math.floor(deadlineAt - performance.now());
+      if (remainingBeforeStatus < 500) break;
 
       try {
+        const statusBudget = Math.min(600, remainingBeforeStatus);
         const status = await withDeadline(
           provider.getStatus(),
-          Math.min(600, Math.max(250, budget)),
+          statusBudget,
           `${provider.id} status timeout`,
         ).catch(() => ({ configured: true, provider: provider.id, model: "unknown" }));
 
@@ -167,9 +170,18 @@ class TranslationService {
           continue;
         }
 
+        const remainingAfterStatus = Math.floor(deadlineAt - performance.now());
+        if (remainingAfterStatus < 500) {
+          lastError = new Error(`${provider.id} không còn đủ thời gian trong cloud budget.`);
+          break;
+        }
+
+        const providerCap = index === 0 ? PRIMARY_BUDGET_MS : 1400;
+        const translateBudget = Math.min(providerCap, remainingAfterStatus);
+
         const fast = await withDeadline(
-          provider.translate(segment, { timeoutMs: Math.max(500, Math.floor(budget)) }),
-          Math.max(500, Math.floor(budget)),
+          provider.translate(segment, { timeoutMs: translateBudget }),
+          translateBudget,
           `${provider.id} translation timeout`,
         );
 
@@ -177,7 +189,7 @@ class TranslationService {
           ...fast,
           latencyMs: Math.round(performance.now() - startedAt),
           isPartial: segments.length > 1,
-          segmentIndex: 1,
+          segmentIndex: displaySegmentIndex,
           segmentCount: segments.length,
         });
         translationCache.write(segment, result);
