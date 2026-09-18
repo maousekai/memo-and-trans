@@ -181,6 +181,7 @@ function meaningFromEntry(entry: DictionaryEntry, preferredPos?: string): WordIn
   const preferred = preferredPos
     ? parts.find((part) => String(part.type || "").toLowerCase().includes(preferredPos))
     : null;
+  if (preferredPos && !preferred) return null;
   const part = preferred || parts[0];
   const meaning = part?.meanings?.find((item) => cleanMeaning(item.vietnamese));
   if (!part || !meaning) return null;
@@ -339,6 +340,11 @@ function isPastParticiple(token: string): boolean {
   ]).has(token);
 }
 
+function normalizeVerbTail(lemma: string, tokens: string[]): string[] {
+  if (lemma === "wait" && tokens[0] === "for") return tokens.slice(1);
+  return tokens;
+}
+
 function buildResult(
   sourceText: string,
   translatedText: string,
@@ -433,8 +439,9 @@ export function lookupCompositionalPhrase(rawText: string): TranslationResult | 
   // "standing outside" / "waiting for the bus"
   if (isPresentParticiple(tokens[0])) {
     const verb = lookupVerb(tokens[0]);
-    const tail = translateSequence(tokens.slice(1));
-    if (!verb || !tail) return null;
+    if (!verb) return null;
+    const tail = translateSequence(normalizeVerbTail(verb.lemma, tokens.slice(1)));
+    if (!tail) return null;
     return buildResult(
       rawText,
       ["đang", verb.vi, tail.text].filter(Boolean).join(" "),
@@ -450,7 +457,7 @@ export function lookupCompositionalPhrase(rawText: string): TranslationResult | 
   // Short imperative/base-verb chunks such as "wait outside".
   const firstVerb = lookupVerb(tokens[0]);
   if (firstVerb) {
-    const tail = translateSequence(tokens.slice(1));
+    const tail = translateSequence(normalizeVerbTail(firstVerb.lemma, tokens.slice(1)));
     if (!tail) return null;
     return buildResult(
       rawText,
