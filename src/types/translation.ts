@@ -33,6 +33,7 @@ export interface FastTranslation {
   translatedText: string;
   alternativeTranslations: string[];
   source: TranslationSource;
+  localStrategy?: "exact" | "composed";
   confidence?: number;
   latencyMs: number;
   isPartial?: boolean;
