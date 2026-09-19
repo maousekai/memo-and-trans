@@ -318,6 +318,88 @@ pub async fn query_nvidia_nim(
     Ok(cleaned.to_string())
 }
 
+const NVIDIA_RIVA_TRANSLATE_MODEL: &str = "nvidia/riva-translate-4b-instruct-v2";
+
+#[tauri::command]
+pub async fn translate_nvidia_riva(
+    text: String,
+    timeout_ms: Option<u64>,
+) -> Result<String, String> {
+    let api_key = security::get_api_key()
+        .map_err(|_| "NVIDIA API key not configured in Windows Credential Manager".to_string())?;
+
+    let clean_text = text.trim();
+    if clean_text.is_empty() {
+        return Err("Translation text cannot be empty".to_string());
+    }
+    if clean_text.chars().count() > 12_000 {
+        return Err("Translation request is limited to 12000 characters".to_string());
+    }
+
+    // Riva Translate v2 is fine-tuned on a language-pair system message.
+    // Keep this prompt intentionally minimal: system="en-vi", user=<source text>.
+    let body = serde_json::json!({
+        "model": NVIDIA_RIVA_TRANSLATE_MODEL,
+        "messages": [
+            {
+                "role": "system",
+                "content": "en-vi"
+            },
+            {
+                "role": "user",
+                "content": clean_text
+            }
+        ],
+        "temperature": 0.0,
+        "max_tokens": 2048,
+        "stream": false
+    });
+
+    let timeout = timeout_ms.unwrap_or(5000).clamp(500, 8000);
+
+    let resp = shared_http_client()
+        .post("https://integrate.api.nvidia.com/v1/chat/completions")
+        .timeout(Duration::from_millis(timeout))
+        .header("Authorization", format!("Bearer {}", api_key))
+        .header("Content-Type", "application/json")
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| {
+            if e.is_timeout() {
+                format!("NVIDIA Riva Translate exceeded the {}ms request budget", timeout)
+            } else {
+                format!("NVIDIA Riva Translate network request failed: {}", e)
+            }
+        })?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let err_text = resp.text().await.unwrap_or_default();
+        return Err(format!(
+            "NVIDIA Riva Translate API error {}: {}",
+            status,
+            err_text
+        ));
+    }
+
+    let json_resp: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse NVIDIA Riva Translate response: {}", e))?;
+
+    let content = json_resp["choices"][0]["message"]["content"]
+        .as_str()
+        .unwrap_or("")
+        .trim();
+
+    if content.is_empty() {
+        return Err("NVIDIA Riva Translate returned an empty translation".to_string());
+    }
+
+    Ok(content.to_string())
+}
+
 #[tauri::command]
 pub async fn synthesize_nvidia_tts(
     text: String,
