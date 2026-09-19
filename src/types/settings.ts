@@ -4,8 +4,9 @@ export type SpeechProvider = "nvidia-magpie" | "system";
 export type TranslationProviderPreference = "auto" | "gemini" | "nvidia";
 
 export const NVIDIA_MODELS = {
-  FAST: "deepseek-ai/deepseek-v4-flash-0731",
-  QUALITY: "deepseek-ai/deepseek-v4-pro-0813",
+  FAST: "nvidia/nemotron-3.5-lightning-30b-a3b",
+  // Kept as an alias for stored settings/backward compatibility.
+  QUALITY: "nvidia/nemotron-3.5-lightning-30b-a3b",
 } as const;
 
 export const NVIDIA_TTS = {
