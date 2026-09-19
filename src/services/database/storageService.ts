@@ -10,7 +10,7 @@ import {
   computeMasteryScore,
 } from "../fsrs/fsrsEngine";
 import { DEMO_DICTIONARY_ENTRIES } from "../../data/demoEntries";
-import { AppSettings, DEFAULT_SETTINGS } from "../../types/settings";
+import { AppSettings, DEFAULT_SETTINGS, NVIDIA_MODELS } from "../../types/settings";
 
 const STORAGE_KEY_WORDS = "lexiglass_sqlite_words_v2";
 const STORAGE_KEY_PHRASES = "lexiglass_saved_phrases_v2";
@@ -568,7 +568,19 @@ class StorageService {
   public getSettings(): AppSettings {
     try {
       const stored = localStorage.getItem(STORAGE_KEY_SETTINGS);
-      if (stored) return { ...DEFAULT_SETTINGS, ...JSON.parse(stored) };
+      if (stored) {
+        const settings = { ...DEFAULT_SETTINGS, ...JSON.parse(stored) } as AppSettings;
+
+        // v18.2 retires DeepSeek from LexiGlass. Existing installations may
+        // still have an old DeepSeek model persisted in localStorage, so
+        // migrate it once instead of silently continuing to call a dead model.
+        if (String(settings.defaultModel || "").toLowerCase().includes("deepseek")) {
+          settings.defaultModel = NVIDIA_MODELS.FAST;
+          localStorage.setItem(STORAGE_KEY_SETTINGS, JSON.stringify(settings));
+        }
+
+        return settings;
+      }
     } catch {
       // Ignore
     }
