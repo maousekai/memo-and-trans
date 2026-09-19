@@ -1,6 +1,6 @@
 [package]
 name = "lexiglass"
-version = "18.1.1"
+version = "18.2.0"
 description = "Production-quality English-Vietnamese AI Dictionary & Vocabulary Learning Desktop Companion"
 authors = ["LexiGlass Team"]
 edition = "2021"
