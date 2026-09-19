@@ -14,8 +14,8 @@ app.use(express.json());
 
 // NVIDIA NIM Configuration
 const NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1";
-const DEFAULT_MODEL = "deepseek-ai/deepseek-v4-flash-0731";
-const QUALITY_MODEL = "deepseek-ai/deepseek-v4-pro-0813";
+const DEFAULT_MODEL = "nvidia/nemotron-3.5-lightning-30b-a3b";
+const QUALITY_MODEL = DEFAULT_MODEL;
 
 // Zod validation schemas for AI responses
 const MeaningSchema = z.object({
