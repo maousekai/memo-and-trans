@@ -21,8 +21,8 @@ export interface TranslateOptions {
 
 const MAX_SEGMENT_CHARS = 1500;
 
-// v18.1 uses a soft-first cloud strategy. Gemini gets a short first chance,
-// while the fallback still has enough real time to answer before the hard stop.
+// v18.2 uses task-specific cloud routing. Riva Translate gets the primary
+// translation window; Gemini/Nemotron remain available for fallback/enrichment.
 const CLOUD_HARD_LIMIT_MS = 8000;
 const RIVA_PRIMARY_LIMIT_MS = 5000;
 const GEMINI_PRIMARY_LIMIT_MS = 3000;
