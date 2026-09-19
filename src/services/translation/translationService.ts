@@ -24,8 +24,9 @@ const MAX_SEGMENT_CHARS = 1500;
 // v18.1 uses a soft-first cloud strategy. Gemini gets a short first chance,
 // while the fallback still has enough real time to answer before the hard stop.
 const CLOUD_HARD_LIMIT_MS = 8000;
-const PRIMARY_SOFT_LIMIT_MS = 3000;
-const FALLBACK_LIMIT_MS = 4400;
+const RIVA_PRIMARY_LIMIT_MS = 5000;
+const GEMINI_PRIMARY_LIMIT_MS = 3000;
+const FALLBACK_LIMIT_MS = 2800;
 const STATUS_TIMEOUT_MS = 500;
 const PROVIDER_STATUS_TTL_MS = 1000 * 60 * 10;
 const ANALYSIS_PROVIDER_BUDGET_MS = 4500;
@@ -115,8 +116,15 @@ function composeResult(sourceText: string, fast: FastTranslation): TranslationRe
   };
 }
 
-function providerOrder(preference: TranslationProviderPreference): TranslationProvider[] {
+export function translationProviderOrder(preference: TranslationProviderPreference): TranslationProvider[] {
+  if (preference === "gemini") return [geminiTranslationProvider, nvidiaTranslationProvider];
+  // Auto now prefers NVIDIA Riva Translate because it is translation-specific.
+  return [nvidiaTranslationProvider, geminiTranslationProvider];
+}
+
+export function analysisProviderOrder(preference: TranslationProviderPreference): TranslationProvider[] {
   if (preference === "nvidia") return [nvidiaTranslationProvider, geminiTranslationProvider];
+  // Gemini remains the preferred enrichment/grammar analyzer.
   return [geminiTranslationProvider, nvidiaTranslationProvider];
 }
 
@@ -212,7 +220,7 @@ class TranslationService {
 
     // 4) Cloud-only cases get a real fallback window instead of forcing both
     // providers into one 4.5 second slot.
-    const providers = providerOrder(options.providerPreference || "auto");
+    const providers = translationProviderOrder(options.providerPreference || "auto");
     const startedAt = performance.now();
     const deadlineAt = startedAt + CLOUD_HARD_LIMIT_MS;
     let lastError: unknown = null;
@@ -232,7 +240,9 @@ class TranslationService {
         const remainingAfterStatus = Math.floor(deadlineAt - performance.now());
         if (remainingAfterStatus < 500) break;
 
-        const providerCap = index === 0 ? PRIMARY_SOFT_LIMIT_MS : FALLBACK_LIMIT_MS;
+        const providerCap = index === 0
+          ? (provider.id === "nvidia" ? RIVA_PRIMARY_LIMIT_MS : GEMINI_PRIMARY_LIMIT_MS)
+          : FALLBACK_LIMIT_MS;
         const translateBudget = Math.min(providerCap, remainingAfterStatus);
         if (translateBudget < 500) break;
 
@@ -273,7 +283,7 @@ class TranslationService {
       return localPhraseService.analyze(result.sourceText);
     }
 
-    const providers = providerOrder(options.providerPreference || "auto");
+    const providers = analysisProviderOrder(options.providerPreference || "auto");
     let lastError: unknown = null;
 
     for (const provider of providers) {
