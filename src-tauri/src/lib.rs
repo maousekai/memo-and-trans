@@ -151,6 +151,7 @@ pub fn run() {
             commands::get_api_key_status,
             commands::save_api_key,
             commands::query_nvidia_nim,
+            commands::translate_nvidia_riva,
             commands::synthesize_nvidia_tts,
             selection::capture_selected_text,
             translation::get_gemini_key_status,
