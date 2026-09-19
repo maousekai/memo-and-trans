@@ -4,8 +4,8 @@ import { DEMO_DICTIONARY_ENTRIES } from "../../data/demoEntries";
 import { invokeNative, isTauriRuntime } from "../desktop/tauriInvoke";
 
 const CACHE_KEY_PREFIX = "lexiglass_dict_cache_";
-const DEFAULT_MODEL = "deepseek-ai/deepseek-v4-flash-0731";
 const FAST_LOOKUP_MODEL = "nvidia/nemotron-3.5-lightning-30b-a3b";
+const DEFAULT_MODEL = FAST_LOOKUP_MODEL;
 
 function extractJson(raw: string): any {
   const text = String(raw || "").trim();
@@ -101,7 +101,7 @@ export class NvidiaNIMProvider implements AIProvider {
           configured: status.configured,
           defaultModel: DEFAULT_MODEL,
           provider: "NVIDIA NIM",
-          proxy: status.configured ? `${status.storage_type} · Fast lookup: Nemotron Lightning` : "Chưa cấu hình API key",
+          proxy: status.configured ? `${status.storage_type} · Dictionary/analysis: Nemotron Lightning · Translation: Riva v2` : "Chưa cấu hình API key",
         };
       } catch {
         return { configured: false, defaultModel: DEFAULT_MODEL, provider: "NVIDIA NIM", proxy: "Native bridge unavailable" };
@@ -156,9 +156,8 @@ export class NvidiaNIMProvider implements AIProvider {
     if (isTauriRuntime()) {
       const preferredQualityModel = model || DEFAULT_MODEL;
       const candidates = Array.from(new Set([
-        FAST_LOOKUP_MODEL,
         preferredQualityModel,
-        DEFAULT_MODEL,
+        FAST_LOOKUP_MODEL,
       ]));
       let lastError: unknown = null;
 

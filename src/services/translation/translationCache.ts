@@ -1,6 +1,6 @@
 import type { TranslationResult } from "../../types/translation";
 
-const CACHE_VERSION = 2;
+const CACHE_VERSION = 3;
 const CACHE_PREFIX = `lexiglass_translation_v${CACHE_VERSION}_`;
 const CACHE_MAX_AGE_MS = 1000 * 60 * 60 * 24 * 90;
 

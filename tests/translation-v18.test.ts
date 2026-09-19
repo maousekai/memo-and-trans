@@ -2,7 +2,15 @@
 import { describe, expect, test } from "bun:test";
 import { classifyInput } from "../src/services/translation/inputClassifier";
 import { buildReverseSuggestions } from "../src/services/translation/localPhraseService";
-import { splitTranslationSegments } from "../src/services/translation/translationService";
+import {
+  analysisProviderOrder,
+  splitTranslationSegments,
+  translationProviderOrder,
+} from "../src/services/translation/translationService";
+import {
+  NVIDIA_ANALYSIS_MODEL,
+  NVIDIA_RIVA_TRANSLATION_MODEL,
+} from "../src/services/translation/nvidiaTranslationProvider";
 import { lookupCompositionalPhrase } from "../src/services/translation/localCompositionalPhraseService";
 
 describe("v18 translation classifier regressions", () => {
@@ -73,5 +81,27 @@ describe("v18.1 instant-first local phrase regressions", () => {
   test("common passive image-description chunks are supported", () => {
     expect(lookupCompositionalPhrase("being loaded onto a truck")?.translatedText)
       .toBe("đang được chất hàng lên xe tải");
+  });
+});
+
+
+describe("v18.2 NVIDIA Riva translation routing", () => {
+  test("auto translation prefers NVIDIA Riva before Gemini", () => {
+    expect(translationProviderOrder("auto").map((provider) => provider.id)).toEqual([
+      "nvidia",
+      "gemini",
+    ]);
+  });
+
+  test("auto analysis still prefers Gemini before NVIDIA enrichment", () => {
+    expect(analysisProviderOrder("auto").map((provider) => provider.id)).toEqual([
+      "gemini",
+      "nvidia",
+    ]);
+  });
+
+  test("NVIDIA translation and analysis use separate task-specific models", () => {
+    expect(NVIDIA_RIVA_TRANSLATION_MODEL).toBe("nvidia/riva-translate-4b-instruct-v2");
+    expect(NVIDIA_ANALYSIS_MODEL).toBe("nvidia/nemotron-3.5-lightning-30b-a3b");
   });
 });

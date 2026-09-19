@@ -70,7 +70,7 @@ export const TranslationSettingsCard: React.FC = () => {
           <Languages className="w-4 h-4 text-cyan-300" />
           <div>
             <h3 className="text-sm font-bold">Dịch cụm, câu & đoạn văn</h3>
-            <p className="text-[11px] text-slate-400 mt-0.5">Gemini Flash-Lite ưu tiên tốc độ; NVIDIA là fallback.</p>
+            <p className="text-[11px] text-slate-400 mt-0.5">Riva Translate v2 dịch chính; Gemini/Nemotron chỉ dự phòng và phân tích.</p>
           </div>
         </div>
         <span className={`flex items-center gap-1 text-[11px] px-2 py-1 rounded-full border ${geminiConfigured ? "text-emerald-200 bg-emerald-300/[0.05] border-emerald-200/[0.10]" : "text-slate-400 bg-white/[0.03] border-white/[0.08]"}`}>
@@ -87,7 +87,7 @@ export const TranslationSettingsCard: React.FC = () => {
             onClick={() => store.updateSettings({ translationProvider: provider })}
             className={`px-2 py-1.5 rounded-lg text-[11px] font-medium transition-colors ${settings.translationProvider === provider ? "bg-white/[0.12] text-white" : "text-slate-400 hover:text-slate-200"}`}
           >
-            {provider === "auto" ? "Tự động" : provider === "gemini" ? "Gemini" : "NVIDIA"}
+            {provider === "auto" ? "Tự động · Riva" : provider === "gemini" ? "Gemini" : "NVIDIA Riva"}
           </button>
         ))}
       </div>

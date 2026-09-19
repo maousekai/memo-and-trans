@@ -55,7 +55,7 @@ export const TranslationView: React.FC = () => {
           <span>Dịch Anh → Việt · {modeLabel}</span>
         </div>
         <span className="normal-case tracking-normal text-slate-500">
-          {result.source === "local" ? "Offline" : result.source === "cache" ? "Cache" : result.source === "gemini" ? "Gemini" : "NVIDIA"}
+          {result.source === "local" ? "Offline" : result.source === "cache" ? "Cache" : result.source === "gemini" ? "Gemini" : "NVIDIA Riva"}
           {result.latencyMs > 0 ? ` · ${result.latencyMs}ms` : ""}
         </span>
       </div>

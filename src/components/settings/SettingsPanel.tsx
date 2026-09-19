@@ -84,7 +84,7 @@ export const SettingsPanel: React.FC = () => {
             <Key className={mutedIcon} />
             <div>
               <h3 className="text-sm font-bold">NVIDIA API</h3>
-              <p className="text-[11px] text-slate-400 font-normal mt-0.5">Dùng cho fallback dịch, tra AI nâng cao và NVIDIA Magpie TTS.</p>
+              <p className="text-[11px] text-slate-400 font-normal mt-0.5">Riva Translate v2 cho dịch; Nemotron cho tra AI/phân tích; Magpie cho TTS.</p>
             </div>
           </div>
           {aiStatus.configured ? (
@@ -142,8 +142,7 @@ export const SettingsPanel: React.FC = () => {
 
         <div className="pt-1 grid grid-cols-1 md:grid-cols-2 gap-2">
           {[
-            { model: NVIDIA_MODELS.FAST, title: "DeepSeek V4 Flash", desc: "Model NVIDIA mặc định cho các tác vụ nâng cao." },
-            { model: NVIDIA_MODELS.QUALITY, title: "DeepSeek V4 Pro", desc: "Dùng cho đánh giá câu hoặc ngữ cảnh khó." },
+            { model: NVIDIA_MODELS.FAST, title: "Nemotron 3.5 Lightning", desc: "Model NVIDIA dùng cho tra AI và phân tích nền. Dịch chính dùng Riva Translate v2." },
           ].map((item) => {
             const selected = settings.defaultModel === item.model;
             return (
