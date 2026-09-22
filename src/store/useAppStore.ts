@@ -39,6 +39,8 @@ interface AppState {
   isAnalyzingTranslation: boolean;
   translationProgressText: string | null;
   lookupSource: LookupSource;
+  lookupNotice: string | null;
+  dictionarySuggestions: string[];
   error: string | null;
   isDemoEntry: boolean;
   savedWords: SavedWord[];
@@ -112,6 +114,8 @@ let state: AppState = {
   isAnalyzingTranslation: false,
   translationProgressText: null,
   lookupSource: "demo",
+  lookupNotice: null,
+  dictionarySuggestions: [],
   error: null,
   isDemoEntry: true,
   savedWords: storageService.getAllWords(),
@@ -260,7 +264,11 @@ export const store = {
   },
 
   setSearchQuery: (query: string) => {
-    updateState({ searchQuery: query });
+    updateState({
+      searchQuery: query,
+      lookupNotice: null,
+      dictionarySuggestions: [],
+    });
   },
 
   prefetchWord: (rawWord: string) => {
@@ -300,6 +308,8 @@ export const store = {
       isEnriching: false,
       error: null,
       lookupSource: null,
+      lookupNotice: null,
+      dictionarySuggestions: [],
       isDemoEntry: false,
     });
 
@@ -379,19 +389,40 @@ export const store = {
     const normalized = normalizeLookupWord(word);
     const startedAt = performance.now();
 
+    // Resolve exact local data first, then a high-confidence spelling correction.
+    // This keeps common typos entirely offline instead of sending them to an LLM.
+    const localResolution = forceRefresh
+      ? {
+          requestedWord: normalized,
+          resolvedWord: normalized,
+          entry: null as DictionaryEntry | null,
+          correctedFrom: null as string | null,
+          suggestions: localDictionaryService.suggestSpellings(normalized, 5),
+        }
+      : localDictionaryService.resolveLookup(normalized);
+
+    const lookupWord = localResolution.resolvedWord || normalized;
     const saved = state.savedWords.find(
-      (item) => (item.normalizedWord || item.word).toLowerCase() === normalized,
+      (item) => (item.normalizedWord || item.word).toLowerCase() === lookupWord,
     );
-    const cached = forceRefresh ? null : readAiCache(normalized);
-    const local = forceRefresh ? null : localDictionaryService.lookupInstant(normalized);
+    const cached = forceRefresh ? null : readAiCache(lookupWord);
+    const local = forceRefresh ? null : localResolution.entry;
     const instantEntry = cached || saved?.dictionary || local;
     const instantSource: LookupSource = cached
       ? "cache"
       : saved?.dictionary
         ? "saved"
         : local
-          ? (DEMO_DICTIONARY_ENTRIES[normalized] ? "demo" : "local")
+          ? (DEMO_DICTIONARY_ENTRIES[lookupWord] ? "demo" : "local")
           : null;
+
+    const correctionNotice = localResolution.correctedFrom
+      ? `Đã sửa chính tả “${localResolution.correctedFrom}” → “${lookupWord}”.`
+      : null;
+    const suggestionWords = localResolution.suggestions
+      .map((item) => item.word)
+      .filter((item, index, items) => item !== lookupWord && items.indexOf(item) === index)
+      .slice(0, 5);
 
     updateState({
       queryMode: "dictionary",
@@ -400,90 +431,87 @@ export const store = {
       isAnalyzingTranslation: false,
       translationProgressText: null,
       isLoading: !instantEntry,
-      isEnriching: Boolean(instantEntry && state.aiStatus.configured),
+      // Local/saved/cache data is complete enough to use immediately. Do not
+      // call cloud automatically and risk replacing a good offline answer.
+      isEnriching: false,
       error: null,
-      searchQuery: word,
+      searchQuery: localResolution.correctedFrom ? lookupWord : word,
       currentEntry: instantEntry || state.currentEntry,
       lookupSource: instantSource,
+      lookupNotice: correctionNotice,
+      dictionarySuggestions: suggestionWords,
       isDemoEntry: instantSource === "demo",
     });
 
-    if (instantEntry) wordSuggestionService.recordSuccessfulSearch(instantEntry.normalizedWord);
-
-    const publicPromise = instantEntry
-      ? Promise.resolve<DictionaryEntry | null>(null)
-      : localDictionaryService.lookupPublic(normalized, 1400);
-
-    const aiPromise = state.aiStatus.configured
-      ? withDeadline(aiService.lookupWord(normalized, state.settings.defaultModel, true), 4700)
-      : null;
-
-    let fastEntry = instantEntry;
-
-    if (!fastEntry) {
-      const publicEntry = await publicPromise;
-      if (generation !== searchGeneration) return;
-
-      if (publicEntry) {
-        fastEntry = publicEntry;
-        wordSuggestionService.recordSuccessfulSearch(publicEntry.normalizedWord);
-        updateState({
-          currentEntry: publicEntry,
-          isLoading: false,
-          isEnriching: Boolean(aiPromise),
-          error: null,
-          lookupSource: "public",
-          isDemoEntry: false,
-        });
-      }
-    }
-
-    if (aiPromise) {
-      try {
-        const aiEntry = await aiPromise;
-        if (generation !== searchGeneration) return;
-        const merged = localDictionaryService.mergeFastAndAi(fastEntry, aiEntry);
-        wordSuggestionService.recordSuccessfulSearch(merged.normalizedWord);
-        updateState({
-          currentEntry: merged,
-          isLoading: false,
-          isEnriching: false,
-          error: null,
-          lookupSource: "ai",
-          isDemoEntry: false,
-        });
-        return;
-      } catch (error) {
-        if (generation !== searchGeneration) return;
-        if (fastEntry) {
-          updateState({ isLoading: false, isEnriching: false, error: null });
-          return;
-        }
-
-        const message = String((error as any)?.message || error || "AI không phản hồi trong giới hạn 5 giây.");
-        updateState({
-          isLoading: false,
-          isEnriching: false,
-          error: `Không có dữ liệu nhanh cho “${word}”. ${message}`,
-          lookupSource: null,
-        });
-        return;
-      }
-    }
-
-    if (generation !== searchGeneration) return;
-    if (fastEntry) {
-      updateState({ isLoading: false, isEnriching: false, error: null });
+    if (instantEntry) {
+      wordSuggestionService.recordSuccessfulSearch(instantEntry.normalizedWord);
       return;
     }
 
-    const elapsed = Math.round(performance.now() - startedAt);
-    updateState({
-      isLoading: false,
-      isEnriching: false,
-      error: `Không tìm thấy “${word}” trong dữ liệu local/public (${elapsed} ms). Hãy kiểm tra chính tả hoặc kết nối AI để bổ sung nghĩa nâng cao.`,
-      lookupSource: null,
-    });
+    // Public dictionary and cloud lookup run concurrently only after all local
+    // paths (including spelling recovery) have failed.
+    const publicPromise = localDictionaryService.lookupPublic(lookupWord, 1800);
+    const aiPromise = withDeadline(
+      aiService.lookupWord(lookupWord, state.settings.defaultModel, true),
+      9500,
+    );
+
+    let fastEntry: DictionaryEntry | null = null;
+
+    const publicEntry = await publicPromise;
+    if (generation !== searchGeneration) return;
+
+    if (publicEntry) {
+      fastEntry = publicEntry;
+      wordSuggestionService.recordSuccessfulSearch(publicEntry.normalizedWord);
+      updateState({
+        currentEntry: publicEntry,
+        isLoading: false,
+        isEnriching: true,
+        error: null,
+        lookupSource: "public",
+        lookupNotice: correctionNotice,
+        dictionarySuggestions: suggestionWords,
+        isDemoEntry: false,
+      });
+    }
+
+    try {
+      const aiEntry = await aiPromise;
+      if (generation !== searchGeneration) return;
+      const merged = localDictionaryService.mergeFastAndAi(fastEntry, aiEntry);
+      wordSuggestionService.recordSuccessfulSearch(merged.normalizedWord);
+      updateState({
+        currentEntry: merged,
+        isLoading: false,
+        isEnriching: false,
+        error: null,
+        lookupSource: "ai",
+        lookupNotice: correctionNotice,
+        dictionarySuggestions: suggestionWords,
+        isDemoEntry: false,
+      });
+      return;
+    } catch (error) {
+      if (generation !== searchGeneration) return;
+      if (fastEntry) {
+        // A public/offline answer already exists. Cloud failure is enrichment
+        // failure only and must never turn a usable dictionary result red.
+        updateState({ isLoading: false, isEnriching: false, error: null });
+        return;
+      }
+
+      const elapsed = Math.round(performance.now() - startedAt);
+      const message = String((error as any)?.message || error || "Dịch vụ AI tạm thời không phản hồi.");
+      updateState({
+        isLoading: false,
+        isEnriching: false,
+        error: `Không tìm thấy dữ liệu chắc chắn cho “${word}” sau ${elapsed} ms. ${message}`,
+        lookupSource: null,
+        lookupNotice: null,
+        dictionarySuggestions: suggestionWords,
+      });
+    }
   },
 
   captureSelectedAndLookup: async () => {

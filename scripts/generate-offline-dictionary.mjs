@@ -11,7 +11,7 @@ const TATOEBA_ZIP_URL = "https://www.manythings.org/anki/vie-eng.zip";
 const FORCE_INCLUDE = [...new Set([
   "produce", "company", "manager", "architecture", "consequence", "environment", "government",
   "comprehensive", "subtle", "retain", "ambiguous", "mitigate", "development", "technology",
-  "business", "computer", "software", "language", "vocabulary", "example", "occupation",
+  "business", "computer", "software", "language", "vocabulary", "example", "occupation", "repair",
   ...TOEIC_PRIORITY_WORDS,
 ])];
 

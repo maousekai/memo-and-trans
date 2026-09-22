@@ -4,6 +4,7 @@ import { GlassSearch } from "../glass/GlassSearch";
 import { GlassButton } from "../glass/GlassButton";
 import { store, useAppStore } from "../../store/useAppStore";
 import { wordSuggestionService } from "../../services/search/wordSuggestionService";
+import { localDictionaryService } from "../../services/dictionary/localDictionaryService";
 
 export const DictionaryHeader: React.FC = () => {
   const searchQuery = useAppStore((s) => s.searchQuery);
@@ -15,7 +16,24 @@ export const DictionaryHeader: React.FC = () => {
   const suggestions = useMemo(() => {
     const trimmed = searchQuery.trim();
     if (!trimmed || /\s/.test(trimmed)) return [];
-    return wordSuggestionService.suggest(trimmed, savedWords, 5);
+
+    const merged = new Map<string, ReturnType<typeof wordSuggestionService.suggest>[number]>();
+    wordSuggestionService.suggest(trimmed, savedWords, 5).forEach((item) => merged.set(item.word, item));
+    localDictionaryService.suggestSpellings(trimmed, 5).forEach((item) => {
+      const existing = merged.get(item.word);
+      const suggestion = {
+        word: item.word,
+        score: item.score,
+        source: "spelling" as const,
+        reason: "edit-distance" as const,
+        editDistance: item.distance,
+      };
+      if (!existing || suggestion.score > existing.score) merged.set(item.word, suggestion);
+    });
+
+    return [...merged.values()]
+      .sort((a, b) => b.score - a.score || a.word.localeCompare(b.word))
+      .slice(0, 5);
   }, [searchQuery, savedWords]);
 
   useEffect(() => {
