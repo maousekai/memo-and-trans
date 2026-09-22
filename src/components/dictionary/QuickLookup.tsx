@@ -16,6 +16,8 @@ export const QuickLookup: React.FC = () => {
   const isLoading = useAppStore((s) => s.isLoading);
   const translationProgressText = useAppStore((s) => s.translationProgressText);
   const error = useAppStore((s) => s.error);
+  const lookupNotice = useAppStore((s) => s.lookupNotice);
+  const dictionarySuggestions = useAppStore((s) => s.dictionarySuggestions);
   const isDemoEntry = useAppStore((s) => s.isDemoEntry);
   const settings = useAppStore((s) => s.settings);
   const isDictionaryMode = queryMode === "dictionary";
@@ -110,15 +112,20 @@ export const QuickLookup: React.FC = () => {
             <p className="text-slate-300 leading-relaxed">{error}</p>
             {isDictionaryMode && (
               <div className="pt-2 flex items-center gap-1.5 flex-wrap">
-                <span className="text-[11px] text-slate-400">Thử từ mẫu:</span>
-                {["occupation", "company", "mitigate", "subtle", "retain"].map((demoWord) => (
+                <span className="text-[11px] text-slate-400">
+                  {dictionarySuggestions.length ? "Có phải bạn muốn:" : "Thử từ mẫu:"}
+                </span>
+                {(dictionarySuggestions.length
+                  ? dictionarySuggestions
+                  : ["occupation", "company", "mitigate", "subtle", "retain"]
+                ).map((suggestedWord) => (
                   <button
-                    key={demoWord}
+                    key={suggestedWord}
                     type="button"
-                    onClick={() => store.submitQuery(demoWord)}
+                    onClick={() => store.submitQuery(suggestedWord)}
                     className="px-2 py-0.5 rounded bg-white/10 hover:bg-cyan-500/20 text-cyan-200 text-[11px] border border-white/10 transition-colors"
                   >
-                    {demoWord}
+                    {suggestedWord}
                   </button>
                 ))}
               </div>
@@ -147,6 +154,13 @@ export const QuickLookup: React.FC = () => {
         )}
 
         {!isLoading && !error && !isDictionaryMode && currentTranslation && <TranslationView />}
+
+        {!isLoading && !error && isDictionaryMode && lookupNotice && (
+          <div className="px-3 py-2 rounded-xl border border-emerald-300/[0.16] bg-emerald-300/[0.045] text-[11px] text-emerald-100/85 flex items-center justify-between gap-2">
+            <span>{lookupNotice}</span>
+            <span className="text-[10px] text-emerald-200/60 whitespace-nowrap">Local · không gọi cloud</span>
+          </div>
+        )}
 
         {!isLoading && !error && isDictionaryMode && currentEntry && (
           <div className="space-y-3 animate-in fade-in duration-200">
