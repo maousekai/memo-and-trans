@@ -264,7 +264,11 @@ export const store = {
   },
 
   setSearchQuery: (query: string) => {
-    updateState({ searchQuery: query });
+    updateState({
+      searchQuery: query,
+      lookupNotice: null,
+      dictionarySuggestions: [],
+    });
   },
 
   prefetchWord: (rawWord: string) => {
