@@ -112,7 +112,7 @@ pub async fn query_gemini(
         .await
         .map_err(|e| {
             if e.is_timeout() {
-                format!("Gemini exceeded the {}ms translation budget", timeout)
+                format!("Gemini exceeded the {}ms request budget", timeout)
             } else {
                 format!("Gemini network request failed: {}", e)
             }
