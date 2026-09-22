@@ -12,6 +12,8 @@ import {
   NVIDIA_RIVA_TRANSLATION_MODEL,
 } from "../src/services/translation/nvidiaTranslationProvider";
 import { lookupCompositionalPhrase } from "../src/services/translation/localCompositionalPhraseService";
+import { wordSuggestionService } from "../src/services/search/wordSuggestionService";
+import { localDictionaryService } from "../src/services/dictionary/localDictionaryService";
 
 describe("v18 translation classifier regressions", () => {
   test("comma-terminated phrase stays phrase mode", () => {
@@ -103,5 +105,26 @@ describe("v18.2 NVIDIA Riva translation routing", () => {
   test("NVIDIA translation and analysis use separate task-specific models", () => {
     expect(NVIDIA_RIVA_TRANSLATION_MODEL).toBe("nvidia/riva-translate-4b-instruct-v2");
     expect(NVIDIA_ANALYSIS_MODEL).toBe("nvidia/nemotron-3.5-lightning-30b-a3b");
+  });
+});
+
+
+describe("v18.2.1 resilient dictionary lookup", () => {
+  test("repaire is recovered as repair before cloud lookup", () => {
+    const suggestions = wordSuggestionService.suggest("repaire", [], 5);
+    expect(suggestions[0]?.word).toBe("repair");
+    expect(wordSuggestionService.shouldAutoPreferSuggestion("repaire", suggestions[0])).toBe(true);
+  });
+
+  test("repair has a guaranteed offline dictionary entry", () => {
+    const entry = localDictionaryService.lookupInstant("repair");
+    expect(entry?.normalizedWord).toBe("repair");
+    expect(entry?.partsOfSpeech?.[0]?.type).toBe("verb");
+    expect(entry?.partsOfSpeech?.[0]?.meanings?.[0]?.vietnamese).toContain("sửa chữa");
+  });
+
+  test("edit-distance recovery still works for non-hardcoded one-letter typos", () => {
+    const suggestions = wordSuggestionService.suggest("retian", [], 5);
+    expect(suggestions.some((item) => item.word === "retain")).toBe(true);
   });
 });
