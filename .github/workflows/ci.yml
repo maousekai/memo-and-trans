@@ -29,11 +29,11 @@ jobs:
       - name: TypeScript check
         run: bun run lint
 
-      - name: v18 translation regression tests
-        run: bun test tests/translation-v18.test.ts
-
       - name: Production build
         run: bun run build
+
+      - name: Translation and dictionary regression tests
+        run: bun test tests/translation-v18.test.ts tests/dictionary-resilience.test.ts
 
   windows-native:
     name: Tauri Rust check (Windows)
@@ -95,7 +95,7 @@ jobs:
       - name: Upload portable executable
         uses: actions/upload-artifact@v4
         with:
-          name: LexiGlass-Windows-portable-v18.2.0
+          name: LexiGlass-Windows-portable-v18.2.1
           path: |
             src-tauri/target/release/lexiglass.exe
             THIRD_PARTY_DATA.md
