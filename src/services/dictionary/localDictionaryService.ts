@@ -50,6 +50,7 @@ const CORE_LEXICON: Record<string, CoreWord> = {
   grammar: { pos: "noun", vi: "ngữ pháp", en: "the rules for how words change and combine to form sentences", ipa: "/ˈɡræm.ər/" },
   pronunciation: { pos: "noun", vi: "phát âm; cách phát âm", en: "the way in which a word or language is spoken", ipa: "/prəˌnʌn.siˈeɪ.ʃən/" },
   response: { pos: "noun", vi: "phản hồi; câu trả lời", en: "an answer or reaction to something", ipa: "/rɪˈspɒns/" },
+  repair: { pos: "verb", vi: "sửa chữa; khắc phục", en: "to fix something that is damaged, broken, or not working properly", ipa: "/rɪˈpeər/", forms: ["repairs", "repairing", "repaired"], example: "The technician repaired the machine.", exampleVi: "Kỹ thuật viên đã sửa chữa chiếc máy." },
   result: { pos: "noun", vi: "kết quả", en: "something that happens because of an action or process", ipa: "/rɪˈzʌlt/" },
   improve: { pos: "verb", vi: "cải thiện", en: "to become better or make something better", ipa: "/ɪmˈpruːv/" },
   effective: { pos: "adjective", vi: "hiệu quả", en: "successful in producing the intended result", ipa: "/ɪˈfek.tɪv/" },
