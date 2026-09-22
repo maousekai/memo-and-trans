@@ -81,7 +81,7 @@ pub async fn query_gemini(
     }
 
     let api_key = get_gemini_key()?;
-    let timeout = timeout_ms.unwrap_or(4500).clamp(500, 4500);
+    let timeout = timeout_ms.unwrap_or(4500).clamp(500, 8000);
     let url = format!(
         "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent",
         model
