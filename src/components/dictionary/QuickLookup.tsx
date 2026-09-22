@@ -8,6 +8,7 @@ import { GlassSurface } from "../glass/GlassSurface";
 import { useAppStore, store } from "../../store/useAppStore";
 import { Volume2, Sparkles, AlertCircle, Copy, Check, Bookmark, BookmarkCheck, ArrowRight, Languages } from "lucide-react";
 import { speechService } from "../../services/pronunciation/speechService";
+import { wordSuggestionService } from "../../services/search/wordSuggestionService";
 
 export const QuickLookup: React.FC = () => {
   const currentEntry = useAppStore((s) => s.currentEntry);
@@ -18,7 +19,13 @@ export const QuickLookup: React.FC = () => {
   const error = useAppStore((s) => s.error);
   const isDemoEntry = useAppStore((s) => s.isDemoEntry);
   const settings = useAppStore((s) => s.settings);
+  const searchQuery = useAppStore((s) => s.searchQuery);
+  const savedWords = useAppStore((s) => s.savedWords);
+  const spellingCorrection = useAppStore((s) => s.spellingCorrection);
   const isDictionaryMode = queryMode === "dictionary";
+  const errorSuggestions = isDictionaryMode && error
+    ? wordSuggestionService.suggest(searchQuery, savedWords, 5)
+    : [];
   const isSaved = isDictionaryMode ? store.isCurrentWordSaved() : false;
 
   const [copied, setCopied] = useState(false);
@@ -105,20 +112,21 @@ export const QuickLookup: React.FC = () => {
           <GlassSurface variant="inset" className="p-3 border-rose-500/30 text-rose-300 text-xs flex flex-col gap-2 my-2">
             <div className="flex items-center gap-2 font-semibold">
               <AlertCircle className="w-4 h-4 text-rose-400" />
-              <span>{isDictionaryMode ? "Không tìm thấy từ hoặc dịch vụ gián đoạn" : "Không thể dịch văn bản"}</span>
+              <span>{isDictionaryMode ? "Không thể hoàn tất tra từ" : "Không thể dịch văn bản"}</span>
             </div>
             <p className="text-slate-300 leading-relaxed">{error}</p>
-            {isDictionaryMode && (
+            {isDictionaryMode && errorSuggestions.length > 0 && (
               <div className="pt-2 flex items-center gap-1.5 flex-wrap">
-                <span className="text-[11px] text-slate-400">Thử từ mẫu:</span>
-                {["occupation", "company", "mitigate", "subtle", "retain"].map((demoWord) => (
+                <span className="text-[11px] text-slate-400">Có thể bạn muốn tra:</span>
+                {errorSuggestions.map((item) => (
                   <button
-                    key={demoWord}
+                    key={item.word}
                     type="button"
-                    onClick={() => store.submitQuery(demoWord)}
+                    onClick={() => store.submitQuery(item.word)}
                     className="px-2 py-0.5 rounded bg-white/10 hover:bg-cyan-500/20 text-cyan-200 text-[11px] border border-white/10 transition-colors"
+                    title={item.reason || "gợi ý chính tả"}
                   >
-                    {demoWord}
+                    {item.word}
                   </button>
                 ))}
               </div>
@@ -150,6 +158,22 @@ export const QuickLookup: React.FC = () => {
 
         {!isLoading && !error && isDictionaryMode && currentEntry && (
           <div className="space-y-3 animate-in fade-in duration-200">
+            {spellingCorrection && (
+              <div className="px-2.5 py-1.5 rounded-lg bg-amber-400/[0.07] border border-amber-300/[0.14] text-[11px] text-amber-100 flex items-center justify-between gap-2">
+                <span>
+                  Đã sửa chính tả: <span className="line-through text-slate-400">{spellingCorrection.from}</span>
+                  {" → "}
+                  <button
+                    type="button"
+                    onClick={() => store.submitQuery(spellingCorrection.to)}
+                    className="font-semibold text-cyan-200 hover:text-cyan-100"
+                  >
+                    {spellingCorrection.to}
+                  </button>
+                </span>
+                <span className="text-[10px] text-slate-500">offline</span>
+              </div>
+            )}
             {isDemoEntry && (
               <div className="px-2.5 py-1 rounded-lg bg-cyan-500/10 border border-cyan-500/20 text-[11px] text-cyan-300 flex items-center justify-between">
                 <span className="flex items-center gap-1">
