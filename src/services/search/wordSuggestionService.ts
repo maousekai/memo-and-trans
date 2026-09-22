@@ -43,6 +43,8 @@ interface Candidate {
 const HISTORY_KEY = "lexiglass_search_history_v1";
 
 const COMMON_CORRECTIONS: Record<string, string[]> = {
+  repaire: ["repair"],
+  recieved: ["received"],
   recieve: ["receive"],
   recive: ["receive"],
   enviroment: ["environment"],
@@ -124,7 +126,7 @@ const COMMON_WORDS = [
   "maintenance", "meaning", "method", "mitigate", "mitigation", "model", "natural", "necessary", "notice",
   "occur", "occurrence", "option", "organize", "performance", "phrase", "practice", "prefer", "prevent",
   "process", "produce", "production", "pronounce", "pronunciation", "quality", "question", "receive", "recognize",
-  "recommend", "recommendation", "reduce", "related", "remember", "research", "respond", "response", "result",
+  "recommend", "recommendation", "repair", "repaired", "repairing", "reduce", "related", "remember", "research", "respond", "response", "result",
   "retain", "retention", "review", "sentence", "separate", "similar", "simple", "specific", "spelling",
   "strategy", "structure", "study", "studies", "subtle", "subtly", "successful", "suggest", "suggestion",
   "support", "system", "technology", "translate", "translation", "understand", "usage", "useful", "valid",
