@@ -1,7 +1,7 @@
 {
   "name": "react-example",
   "private": true,
-  "version": "18.2.0",
+  "version": "18.2.1",
   "type": "module",
   "scripts": {
     "dict:generate": "node scripts/generate-offline-dictionary.mjs",
