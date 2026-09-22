@@ -252,7 +252,9 @@ pub async fn query_nvidia_nim(
         .map_err(|_| "NVIDIA API key not configured in Windows Credential Manager".to_string())?;
 
     let body = build_nim_request_body(&model, &prompt, temperature.unwrap_or(0.1));
-    let timeout = timeout_ms.unwrap_or(4500).clamp(500, 4500);
+    // Callers choose their own task budget. Translation/analysis still pass
+    // <= 4500ms explicitly, while dictionary enrichment may use up to 8s.
+    let timeout = timeout_ms.unwrap_or(4500).clamp(500, 8000);
 
     let resp = shared_http_client()
         .post("https://integrate.api.nvidia.com/v1/chat/completions")

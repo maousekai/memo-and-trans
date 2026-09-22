@@ -133,11 +133,12 @@ export class NvidiaNIMProvider implements AIProvider {
     if (parsed?.ok !== true) throw new Error("NVIDIA API trả về phản hồi không hợp lệ.");
   }
 
-  private async lookupNativeWithModel(word: string, model: string): Promise<DictionaryEntry> {
+  private async lookupNativeWithModel(word: string, model: string, timeoutMs = 7000): Promise<DictionaryEntry> {
     const raw = await invokeNative<string>("query_nvidia_nim", {
       model,
       prompt: dictionaryPrompt(word),
       temperature: 0.1,
+      timeoutMs,
     });
     const entry = normalizeEntry(extractJson(raw), word);
     if (!entry.partsOfSpeech.length) throw new Error("AI không trả về dữ liệu từ điển hợp lệ.");
@@ -177,7 +178,7 @@ export class NvidiaNIMProvider implements AIProvider {
       if (message.toLowerCase().includes("not configured")) {
         throw new Error("Chưa kết nối NVIDIA API. Vào Sổ học tập → Cài đặt → NVIDIA API để nhập API key.");
       }
-      throw new Error(`Tra từ thất bại sau khi thử model nhanh và model dự phòng. ${message}`);
+      throw new Error(`NVIDIA dictionary tạm thời không phản hồi. ${message}`);
     }
 
     try {
