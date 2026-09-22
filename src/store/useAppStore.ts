@@ -38,6 +38,7 @@ interface AppState {
   isTranslating: boolean;
   isAnalyzingTranslation: boolean;
   translationProgressText: string | null;
+  spellingCorrection: { from: string; to: string } | null;
   lookupSource: LookupSource;
   error: string | null;
   isDemoEntry: boolean;
@@ -111,6 +112,7 @@ let state: AppState = {
   isTranslating: false,
   isAnalyzingTranslation: false,
   translationProgressText: null,
+  spellingCorrection: null,
   lookupSource: "demo",
   error: null,
   isDemoEntry: true,
@@ -275,7 +277,7 @@ export const store = {
     if (!input) return;
     const mode = classifyInput(input);
     if (mode === "dictionary") {
-      updateState({ queryMode: mode, currentTranslation: null, isTranslating: false, isAnalyzingTranslation: false, translationProgressText: null });
+      updateState({ queryMode: mode, currentTranslation: null, isTranslating: false, isAnalyzingTranslation: false, translationProgressText: null, spellingCorrection: null });
       await store.searchWord(input);
       return;
     }
@@ -297,6 +299,7 @@ export const store = {
       isTranslating: true,
       isAnalyzingTranslation: false,
       translationProgressText: null,
+      spellingCorrection: null,
       isEnriching: false,
       error: null,
       lookupSource: null,
@@ -379,18 +382,34 @@ export const store = {
     const normalized = normalizeLookupWord(word);
     const startedAt = performance.now();
 
-    const saved = state.savedWords.find(
+    const directSaved = state.savedWords.find(
       (item) => (item.normalizedWord || item.word).toLowerCase() === normalized,
     );
-    const cached = forceRefresh ? null : readAiCache(normalized);
-    const local = forceRefresh ? null : localDictionaryService.lookupInstant(normalized);
-    const instantEntry = cached || saved?.dictionary || local;
-    const instantSource: LookupSource = cached
+    const directCached = forceRefresh ? null : readAiCache(normalized);
+    const directLocal = forceRefresh ? null : localDictionaryService.lookupInstant(normalized);
+
+    const topSuggestion = !directCached && !directSaved?.dictionary && !directLocal
+      ? wordSuggestionService.suggest(normalized, state.savedWords, 5)[0]
+      : undefined;
+    const shouldCorrect = wordSuggestionService.shouldAutoPreferSuggestion(normalized, topSuggestion);
+    const correctedWord = shouldCorrect && topSuggestion ? topSuggestion.word : null;
+
+    const correctedSaved = correctedWord
+      ? state.savedWords.find((item) => (item.normalizedWord || item.word).toLowerCase() === correctedWord)
+      : undefined;
+    const correctedCached = correctedWord && !forceRefresh ? readAiCache(correctedWord) : null;
+    const correctedLocal = correctedWord && !forceRefresh ? localDictionaryService.lookupInstant(correctedWord) : null;
+
+    const lookupTarget = correctedWord || normalized;
+    const instantEntry = directCached || directSaved?.dictionary || directLocal
+      || correctedCached || correctedSaved?.dictionary || correctedLocal;
+
+    const instantSource: LookupSource = directCached || correctedCached
       ? "cache"
-      : saved?.dictionary
+      : directSaved?.dictionary || correctedSaved?.dictionary
         ? "saved"
-        : local
-          ? (DEMO_DICTIONARY_ENTRIES[normalized] ? "demo" : "local")
+        : directLocal || correctedLocal
+          ? (DEMO_DICTIONARY_ENTRIES[lookupTarget] ? "demo" : "local")
           : null;
 
     updateState({
@@ -399,11 +418,12 @@ export const store = {
       isTranslating: false,
       isAnalyzingTranslation: false,
       translationProgressText: null,
+      spellingCorrection: correctedWord ? { from: normalized, to: correctedWord } : null,
       isLoading: !instantEntry,
       isEnriching: Boolean(instantEntry && state.aiStatus.configured),
       error: null,
       searchQuery: word,
-      currentEntry: instantEntry || state.currentEntry,
+      currentEntry: instantEntry || null,
       lookupSource: instantSource,
       isDemoEntry: instantSource === "demo",
     });
@@ -412,10 +432,10 @@ export const store = {
 
     const publicPromise = instantEntry
       ? Promise.resolve<DictionaryEntry | null>(null)
-      : localDictionaryService.lookupPublic(normalized, 1400);
+      : localDictionaryService.lookupPublic(lookupTarget, 1800);
 
     const aiPromise = state.aiStatus.configured
-      ? withDeadline(aiService.lookupWord(normalized, state.settings.defaultModel, true), 4700)
+      ? withDeadline(aiService.lookupWord(lookupTarget, state.settings.defaultModel, true), 7600)
       : null;
 
     let fastEntry = instantEntry;
@@ -460,11 +480,16 @@ export const store = {
           return;
         }
 
-        const message = String((error as any)?.message || error || "AI không phản hồi trong giới hạn 5 giây.");
+        const message = String((error as any)?.message || error || "Dịch vụ AI đang tạm thời không phản hồi.");
+        const suggestions = wordSuggestionService.suggest(normalized, state.savedWords, 3)
+          .map((item) => item.word)
+          .filter((item) => item !== lookupTarget);
         updateState({
           isLoading: false,
           isEnriching: false,
-          error: `Không có dữ liệu nhanh cho “${word}”. ${message}`,
+          error: suggestions.length
+            ? `Chưa tìm được dữ liệu chắc chắn cho “${word}”. Dịch vụ AI đang gián đoạn. Có thể bạn muốn tra: ${suggestions.join(", ")}.`
+            : `Chưa tìm được dữ liệu chắc chắn cho “${word}”. Dịch vụ AI đang gián đoạn. ${message}`,
           lookupSource: null,
         });
         return;
@@ -482,6 +507,7 @@ export const store = {
       isLoading: false,
       isEnriching: false,
       error: `Không tìm thấy “${word}” trong dữ liệu local/public (${elapsed} ms). Hãy kiểm tra chính tả hoặc kết nối AI để bổ sung nghĩa nâng cao.`,
+      spellingCorrection: null,
       lookupSource: null,
     });
   },
