@@ -6,6 +6,9 @@ import { invokeNative, isTauriRuntime } from "../desktop/tauriInvoke";
 const CACHE_KEY_PREFIX = "lexiglass_dict_cache_";
 const FAST_LOOKUP_MODEL = "nvidia/nemotron-3.5-lightning-30b-a3b";
 const DEFAULT_MODEL = FAST_LOOKUP_MODEL;
+export const DICTIONARY_NVIDIA_TIMEOUT_MS = 7000;
+export const DICTIONARY_GEMINI_TIMEOUT_MS = 6500;
+export const GEMINI_DICTIONARY_MODEL = "gemini-3.5-flash-lite";
 
 function extractJson(raw: string): any {
   const text = String(raw || "").trim();
@@ -65,6 +68,27 @@ function dictionaryPrompt(word: string) {
   return `Create a compact English-Vietnamese dictionary entry for "${word}". Return ONLY valid JSON, no markdown. Be concise and practical. Use at most 2 parts of speech, 2 common meanings per part of speech, 1 example per meaning, and up to 4 collocations total. Natural Vietnamese, common meanings first.
 Schema:
 {"query":"${word}","normalizedWord":"string","language":"en","ipaUS":"string|null","ipaUK":"string|null","syllables":"string|null","cefr":"A1|A2|B1|B2|C1|C2|null","frequency":"very-common|common|medium|uncommon|null","partsOfSpeech":[{"type":"string","forms":["string"],"meanings":[{"vietnamese":"string","englishDefinition":"string","register":"neutral|formal|informal|academic|slang|null","context":"string|null","examples":[{"english":"string","vietnamese":"string"}],"collocations":["string"]}]}],"synonyms":["string"],"antonyms":["string"],"wordFamily":[{"word":"string","type":"string","vietnameseMeaning":"string"}],"commonCollocations":["string"],"commonMistakes":[{"incorrect":"string","correct":"string","explanationVietnamese":"string"}],"mnemonic":"string|null"}`;
+}
+
+async function firstSuccessful<T>(tasks: Array<Promise<T>>): Promise<T> {
+  if (!tasks.length) throw new Error("Không có dịch vụ từ điển cloud nào được cấu hình.");
+  return await new Promise<T>((resolve, reject) => {
+    const errors: unknown[] = [];
+    let pending = tasks.length;
+    tasks.forEach((task) => {
+      task.then(resolve).catch((error) => {
+        errors.push(error);
+        pending -= 1;
+        if (pending === 0) {
+          const detail = errors
+            .map((item) => String((item as any)?.message || item || "unknown error"))
+            .filter(Boolean)
+            .join(" | ");
+          reject(new Error(detail || "Các dịch vụ từ điển cloud đều thất bại."));
+        }
+      });
+    });
+  });
 }
 
 export class NvidiaNIMProvider implements AIProvider {
@@ -133,14 +157,35 @@ export class NvidiaNIMProvider implements AIProvider {
     if (parsed?.ok !== true) throw new Error("NVIDIA API trả về phản hồi không hợp lệ.");
   }
 
-  private async lookupNativeWithModel(word: string, model: string): Promise<DictionaryEntry> {
+  private async lookupNativeWithModel(
+    word: string,
+    model: string,
+    timeoutMs = DICTIONARY_NVIDIA_TIMEOUT_MS,
+  ): Promise<DictionaryEntry> {
     const raw = await invokeNative<string>("query_nvidia_nim", {
       model,
       prompt: dictionaryPrompt(word),
       temperature: 0.1,
+      timeoutMs,
     });
     const entry = normalizeEntry(extractJson(raw), word);
-    if (!entry.partsOfSpeech.length) throw new Error("AI không trả về dữ liệu từ điển hợp lệ.");
+    if (!entry.partsOfSpeech.length) throw new Error("NVIDIA không trả về dữ liệu từ điển hợp lệ.");
+    return entry;
+  }
+
+  private async lookupNativeWithGemini(word: string): Promise<DictionaryEntry> {
+    const status = await invokeNative<{ configured: boolean }>("get_gemini_key_status");
+    if (!status?.configured) {
+      throw new Error("Gemini API key chưa được cấu hình.");
+    }
+
+    const raw = await invokeNative<string>("query_gemini", {
+      model: GEMINI_DICTIONARY_MODEL,
+      prompt: dictionaryPrompt(word),
+      timeoutMs: DICTIONARY_GEMINI_TIMEOUT_MS,
+    });
+    const entry = normalizeEntry(extractJson(raw), word);
+    if (!entry.partsOfSpeech.length) throw new Error("Gemini không trả về dữ liệu từ điển hợp lệ.");
     return entry;
   }
 
@@ -154,30 +199,25 @@ export class NvidiaNIMProvider implements AIProvider {
     }
 
     if (isTauriRuntime()) {
-      const preferredQualityModel = model || DEFAULT_MODEL;
-      const candidates = Array.from(new Set([
-        preferredQualityModel,
-        FAST_LOOKUP_MODEL,
-      ]));
-      let lastError: unknown = null;
+      const preferredModel = model || DEFAULT_MODEL;
 
-      for (const candidate of candidates) {
-        try {
-          const entry = await this.lookupNativeWithModel(normalized, candidate);
-          this.saveToCache(entry);
-          return entry;
-        } catch (error) {
-          lastError = error;
-          console.warn(`Dictionary lookup failed with ${candidate}; trying fallback.`, error);
-        }
-      }
+      // Dictionary cloud lookup is rare because local/fuzzy/public paths run
+      // first. When cloud is actually needed, race independent providers rather
+      // than retrying the same model under a tiny deadline.
+      const tasks: Array<Promise<DictionaryEntry>> = [
+        this.lookupNativeWithModel(normalized, preferredModel, DICTIONARY_NVIDIA_TIMEOUT_MS),
+        this.lookupNativeWithGemini(normalized),
+      ];
 
-      if (DEMO_DICTIONARY_ENTRIES[normalized]) return DEMO_DICTIONARY_ENTRIES[normalized];
-      const message = String((lastError as any)?.message || lastError || "Không thể kết nối NVIDIA NIM.");
-      if (message.toLowerCase().includes("not configured")) {
-        throw new Error("Chưa kết nối NVIDIA API. Vào Sổ học tập → Cài đặt → NVIDIA API để nhập API key.");
+      try {
+        const entry = await firstSuccessful(tasks);
+        this.saveToCache(entry);
+        return entry;
+      } catch (error) {
+        if (DEMO_DICTIONARY_ENTRIES[normalized]) return DEMO_DICTIONARY_ENTRIES[normalized];
+        const message = String((error as any)?.message || error || "Không thể kết nối dịch vụ từ điển cloud.");
+        throw new Error(`Tra từ cloud thất bại sau khi thử NVIDIA và Gemini song song. ${message}`);
       }
-      throw new Error(`Tra từ thất bại sau khi thử model nhanh và model dự phòng. ${message}`);
     }
 
     try {
