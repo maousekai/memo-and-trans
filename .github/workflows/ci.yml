@@ -26,10 +26,13 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      - name: Generate full offline dictionary
+        run: bun run dict:generate
+
       - name: TypeScript check
         run: bun run lint
 
-      - name: v18 translation regression tests
+      - name: Dictionary and translation regression tests
         run: bun test tests/translation-v18.test.ts
 
       - name: Production build
