@@ -120,10 +120,11 @@ describe("v18.3 real offline dictionary core", () => {
     expect(Object.keys(OFFLINE_DICTIONARY_10000_ALIASES).length).toBeGreaterThanOrEqual(100000);
   });
 
-  test("common inflected forms resolve to their lemma offline", () => {
+  test("common inflected forms expose their lemma offline without hiding exact entries", () => {
     expect(localDictionaryService.lookupInstant("repaired")?.normalizedWord).toBe("repair");
-    expect(localDictionaryService.lookupInstant("stopped")?.normalizedWord).toBe("stop");
-    expect(localDictionaryService.lookupInstant("ran")?.normalizedWord).toBe("run");
+    expect(localDictionaryService.resolveInflection("stopped")).toBe("stop");
+    expect(localDictionaryService.resolveInflection("ran")).toBe("run");
+    expect(localDictionaryService.lookupInstant("stopped")).not.toBeNull();
   });
 
   test("repaire is suggested from the lexicon without a one-off hardcoded patch", () => {
