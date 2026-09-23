@@ -382,23 +382,33 @@ export const store = {
     const normalized = normalizeLookupWord(word);
     const startedAt = performance.now();
 
-    // Dictionary lookup is deliberately deterministic. AI is not on this path:
-    // exact saved/local data -> inflection alias (inside local lookup) -> public
-    // dictionary -> spelling suggestions from the complete offline lexicon.
+    const enrichExamplesInBackground = (entry: DictionaryEntry) => {
+      if (localDictionaryService.hasExamples(entry)) return;
+      updateState({ isEnriching: true });
+      void localDictionaryService.enrichExamples(entry, 1800).then((enriched) => {
+        if (generation !== searchGeneration) return;
+        updateState({
+          currentEntry: enriched,
+          isEnriching: false,
+        });
+      }).catch(() => {
+        if (generation !== searchGeneration) return;
+        updateState({ isEnriching: false });
+      });
+    };
+
+    // Dictionary lookup stays deterministic and local-first. The large offline
+    // lexicon is now sharded, so only the relevant shard is loaded on demand.
     const saved = state.savedWords.find(
       (item) => (item.normalizedWord || item.word).toLowerCase() === normalized,
     );
-    const local = forceRefresh ? null : localDictionaryService.lookupInstant(normalized);
-    const instantEntry = saved?.dictionary || local;
+    const instantLocal = forceRefresh ? null : localDictionaryService.lookupInstant(normalized);
+    const instantEntry = saved?.dictionary || instantLocal;
     const instantSource: LookupSource = saved?.dictionary
       ? "saved"
-      : local
-        ? (DEMO_DICTIONARY_ENTRIES[local.normalizedWord] ? "demo" : "local")
+      : instantLocal
+        ? (DEMO_DICTIONARY_ENTRIES[instantLocal.normalizedWord] ? "demo" : "local")
         : null;
-
-    const corrections = instantEntry
-      ? []
-      : wordSuggestionService.suggestCorrections(normalized, state.savedWords, 5);
 
     updateState({
       queryMode: "dictionary",
@@ -406,8 +416,8 @@ export const store = {
       isTranslating: false,
       isAnalyzingTranslation: false,
       translationProgressText: null,
-      dictionarySuggestions: corrections,
-      isLoading: !instantEntry && corrections.length === 0,
+      dictionarySuggestions: [],
+      isLoading: !instantEntry,
       isEnriching: false,
       error: null,
       searchQuery: word,
@@ -418,29 +428,51 @@ export const store = {
 
     if (instantEntry) {
       wordSuggestionService.recordSuccessfulSearch(instantEntry.normalizedWord);
-
-      // Missing examples are enrichment only. The dictionary result is already
-      // visible and remains usable even if the network is offline.
-      if (!localDictionaryService.hasExamples(instantEntry)) {
-        updateState({ isEnriching: true });
-        void localDictionaryService.enrichExamples(instantEntry, 1800).then((enriched) => {
-          if (generation !== searchGeneration) return;
-          updateState({
-            currentEntry: enriched,
-            isEnriching: false,
-          });
-        }).catch(() => {
-          if (generation !== searchGeneration) return;
-          updateState({ isEnriching: false });
-        });
-      }
+      enrichExamplesInBackground(instantEntry);
       return;
     }
 
-    // Even when spelling suggestions exist, check the exact submitted form
-    // against a conventional online dictionary. This never blocks showing the
-    // offline suggestions and never invokes an LLM.
-    const publicEntry = await localDictionaryService.lookupPublic(normalized, 1800);
+    const offlineEntry = await localDictionaryService.lookupOffline(normalized);
+    if (generation !== searchGeneration) return;
+
+    if (offlineEntry) {
+      wordSuggestionService.recordSuccessfulSearch(offlineEntry.normalizedWord);
+      updateState({
+        currentEntry: offlineEntry,
+        dictionarySuggestions: [],
+        isLoading: false,
+        isEnriching: false,
+        error: null,
+        lookupSource: "local",
+        isDemoEntry: false,
+      });
+      enrichExamplesInBackground(offlineEntry);
+      return;
+    }
+
+    // Start the exact public-dictionary request, but calculate local fuzzy
+    // suggestions in parallel so a network delay never blocks spelling help.
+    const publicPromise = localDictionaryService.lookupPublic(normalized, 1800);
+    const corrections = await wordSuggestionService.suggestCorrectionsAsync(
+      normalized,
+      state.savedWords,
+      5,
+    );
+    if (generation !== searchGeneration) return;
+
+    if (corrections.length > 0) {
+      updateState({
+        currentEntry: null,
+        dictionarySuggestions: corrections,
+        isLoading: false,
+        isEnriching: false,
+        error: null,
+        lookupSource: null,
+        isDemoEntry: false,
+      });
+    }
+
+    const publicEntry = await publicPromise;
     if (generation !== searchGeneration) return;
 
     if (publicEntry) {
@@ -454,21 +486,11 @@ export const store = {
         lookupSource: "public",
         isDemoEntry: false,
       });
+      enrichExamplesInBackground(publicEntry);
       return;
     }
 
-    if (corrections.length > 0) {
-      updateState({
-        currentEntry: null,
-        dictionarySuggestions: corrections,
-        isLoading: false,
-        isEnriching: false,
-        error: null,
-        lookupSource: null,
-        isDemoEntry: false,
-      });
-      return;
-    }
+    if (corrections.length > 0) return;
 
     const elapsed = Math.round(performance.now() - startedAt);
     updateState({
