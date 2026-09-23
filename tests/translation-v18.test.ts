@@ -14,6 +14,11 @@ import {
 import { lookupCompositionalPhrase } from "../src/services/translation/localCompositionalPhraseService";
 import { wordSuggestionService } from "../src/services/search/wordSuggestionService";
 import { localDictionaryService } from "../src/services/dictionary/localDictionaryService";
+import {
+  OFFLINE_DICTIONARY_10000_COUNT,
+  OFFLINE_DICTIONARY_10000_ALIASES,
+} from "../src/data/offlineDictionary10000.generated";
+import { readFileSync } from "node:fs";
 
 describe("v18 translation classifier regressions", () => {
   test("comma-terminated phrase stays phrase mode", () => {
@@ -109,22 +114,40 @@ describe("v18.2 NVIDIA Riva translation routing", () => {
 });
 
 
-describe("v18.2.1 resilient dictionary lookup", () => {
-  test("repaire is recovered as repair before cloud lookup", () => {
-    const suggestions = wordSuggestionService.suggest("repaire", [], 5);
-    expect(suggestions[0]?.word).toBe("repair");
-    expect(wordSuggestionService.shouldAutoPreferSuggestion("repaire", suggestions[0])).toBe(true);
+describe("v18.3 real offline dictionary core", () => {
+  test("build contains the full-scale lexicon rather than the old 20k subset", () => {
+    expect(OFFLINE_DICTIONARY_10000_COUNT).toBeGreaterThanOrEqual(140000);
+    expect(Object.keys(OFFLINE_DICTIONARY_10000_ALIASES).length).toBeGreaterThanOrEqual(100000);
   });
 
-  test("repair has a guaranteed offline dictionary entry", () => {
-    const entry = localDictionaryService.lookupInstant("repair");
-    expect(entry?.normalizedWord).toBe("repair");
-    expect(entry?.partsOfSpeech?.[0]?.type).toBe("verb");
-    expect(entry?.partsOfSpeech?.[0]?.meanings?.[0]?.vietnamese).toContain("sửa chữa");
+  test("common inflected forms resolve to their lemma offline", () => {
+    expect(localDictionaryService.lookupInstant("repaired")?.normalizedWord).toBe("repair");
+    expect(localDictionaryService.lookupInstant("stopped")?.normalizedWord).toBe("stop");
+    expect(localDictionaryService.lookupInstant("ran")?.normalizedWord).toBe("run");
   });
 
-  test("edit-distance recovery still works for non-hardcoded one-letter typos", () => {
-    const suggestions = wordSuggestionService.suggest("retian", [], 5);
+  test("repaire is suggested from the lexicon without a one-off hardcoded patch", () => {
+    const suggestions = wordSuggestionService.suggestCorrections("repaire", [], 5);
+    expect(suggestions.some((item) => item.word === "repair")).toBe(true);
+  });
+
+  test("prefix suggestions come from the offline dictionary index", () => {
+    const suggestions = localDictionaryService.suggestPrefix("repa", 12);
+    expect(suggestions.some((item) => item.word === "repair")).toBe(true);
+  });
+
+  test("generic transposition recovery searches the full offline lexicon", () => {
+    const suggestions = wordSuggestionService.suggestCorrections("retian", [], 5);
     expect(suggestions.some((item) => item.word === "retain")).toBe(true);
+  });
+
+  test("dictionary lookup path does not call an LLM", () => {
+    const source = readFileSync(new URL("../src/store/useAppStore.ts", import.meta.url), "utf8");
+    const start = source.indexOf("searchWord: async");
+    const end = source.indexOf("captureSelectedAndLookup: async", start);
+    const searchWordSource = source.slice(start, end);
+    expect(searchWordSource.includes("aiService.lookupWord")).toBe(false);
+    expect(searchWordSource.includes("lookupPublic")).toBe(true);
+    expect(searchWordSource.includes("suggestCorrections")).toBe(true);
   });
 });
