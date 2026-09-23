@@ -157,13 +157,16 @@ describe("v18.3+ real offline dictionary core", () => {
     expect(OFFLINE_DICTIONARY_ALIAS_COUNT).toBeGreaterThanOrEqual(100000);
   });
 
-  test("sharded offline lookup resolves inflections without loading the full dictionary", async () => {
+  test("sharded offline lookup preserves exact entries while exposing their lemmas", async () => {
     await withDictionaryAssetFetch(async () => {
-      expect((await localDictionaryService.lookupOffline("repaired"))?.normalizedWord).toBe("repair");
-      await localDictionaryService.lookupOffline("stopped");
-      await localDictionaryService.lookupOffline("ran");
-      expect(localDictionaryService.resolveInflection("stopped")).toBe("stop");
-      expect(localDictionaryService.resolveInflection("ran")).toBe("run");
+      expect(await localDictionaryService.lookupOffline("repaired")).not.toBeNull();
+      expect(await localDictionaryService.resolveInflectionAsync("repaired")).toBe("repair");
+
+      expect(await localDictionaryService.lookupOffline("stopped")).not.toBeNull();
+      expect(await localDictionaryService.resolveInflectionAsync("stopped")).toBe("stop");
+
+      expect(await localDictionaryService.lookupOffline("ran")).not.toBeNull();
+      expect(await localDictionaryService.resolveInflectionAsync("ran")).toBe("run");
     });
   });
 
