@@ -76,6 +76,7 @@ const inFlight = new Map<string, Promise<DictionaryEntry | null>>();
 interface OfflineShard {
   entries: Record<string, OfflinePackedPart[]>;
   aliases: Record<string, string>;
+  ranks: Record<string, [number, number]>;
 }
 
 export interface OfflineWordSuggestion {
@@ -122,16 +123,17 @@ async function loadShard(key: string): Promise<OfflineShard> {
       const response = await fetch(dictionaryAssetUrl(`shards/${encodeURIComponent(key)}.json`), {
         cache: "force-cache",
       });
-      if (!response.ok) return { entries: {}, aliases: {} };
+      if (!response.ok) return { entries: {}, aliases: {}, ranks: {} };
       const payload = await response.json() as OfflineShard;
       const normalized: OfflineShard = {
         entries: payload?.entries || {},
         aliases: payload?.aliases || {},
+        ranks: payload?.ranks || {},
       };
       shardCache.set(key, normalized);
       return normalized;
     } catch {
-      const empty = { entries: {}, aliases: {} };
+      const empty = { entries: {}, aliases: {}, ranks: {} };
       shardCache.set(key, empty);
       return empty;
     } finally {
@@ -613,7 +615,11 @@ export const localDictionaryService = {
 
     return Object.keys(shard.entries)
       .filter((word) => word !== prefix && word.startsWith(prefix) && isSingleEnglishWord(word))
-      .sort()
+      .sort((a, b) => {
+        const [tierA, freqA] = shard.ranks[a] || [99, 0];
+        const [tierB, freqB] = shard.ranks[b] || [99, 0];
+        return tierA - tierB || freqB - freqA || a.localeCompare(b);
+      })
       .slice(0, limit)
       .map((word) => ({
         word,
