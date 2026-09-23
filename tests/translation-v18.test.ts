@@ -15,8 +15,11 @@ import { lookupCompositionalPhrase } from "../src/services/translation/localComp
 import { wordSuggestionService } from "../src/services/search/wordSuggestionService";
 import { localDictionaryService } from "../src/services/dictionary/localDictionaryService";
 import {
+  OFFLINE_DICTIONARY_SCHEMA_VERSION,
   OFFLINE_DICTIONARY_10000_COUNT,
   OFFLINE_DICTIONARY_10000_ALIASES,
+  OFFLINE_DICTIONARY_EXAMPLE_WORD_COUNT,
+  OFFLINE_DICTIONARY_EXAMPLE_SENTENCE_COUNT,
 } from "../src/data/offlineDictionary10000.generated";
 import { readFileSync } from "node:fs";
 
@@ -150,5 +153,34 @@ describe("v18.3 real offline dictionary core", () => {
     expect(searchWordSource.includes("aiService.lookupWord")).toBe(false);
     expect(searchWordSource.includes("lookupPublic")).toBe(true);
     expect(searchWordSource.includes("suggestCorrections")).toBe(true);
+  });
+});
+
+
+describe("v18.4 dictionary coverage and example corpus", () => {
+  test("build uses the v18.4 merged dictionary schema", () => {
+    expect(OFFLINE_DICTIONARY_SCHEMA_VERSION).toBe(4);
+    expect(OFFLINE_DICTIONARY_10000_COUNT).toBeGreaterThanOrEqual(150000);
+  });
+
+  test("offline example coverage grows beyond the old Tatoeba-only build", () => {
+    expect(OFFLINE_DICTIONARY_EXAMPLE_WORD_COUNT).toBeGreaterThanOrEqual(4000);
+    expect(OFFLINE_DICTIONARY_EXAMPLE_SENTENCE_COUNT).toBeGreaterThanOrEqual(
+      OFFLINE_DICTIONARY_EXAMPLE_WORD_COUNT,
+    );
+  });
+
+  test("dictionary punctuation headwords are not discarded by the generator", () => {
+    expect(localDictionaryService.lookupInstant("24/7")).not.toBeNull();
+    expect(localDictionaryService.lookupInstant("9/11")).not.toBeNull();
+  });
+
+  test("example enrichment remains separate from core word lookup", () => {
+    const source = readFileSync(new URL("../src/store/useAppStore.ts", import.meta.url), "utf8");
+    const start = source.indexOf("searchWord: async");
+    const end = source.indexOf("captureSelectedAndLookup: async", start);
+    const searchWordSource = source.slice(start, end);
+    expect(searchWordSource.includes("enrichExamples")).toBe(true);
+    expect(searchWordSource.includes("aiService.lookupWord")).toBe(false);
   });
 });
