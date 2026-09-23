@@ -418,8 +418,8 @@ if (selected.length < MIN_EXPECTED_COUNT) {
 const selectedMap = new Map(selected.map((entry) => [entry.word, entry]));
 const priorityCoverage = TOEIC_PRIORITY_WORDS.filter((word) => selectedMap.has(word)).length;
 
-const dictionary = {};
-const aliases = {};
+const dictionary = Object.create(null);
+const aliases = Object.create(null);
 for (const item of selected) {
   dictionary[item.word] = item.parts;
   for (const alias of item.aliases) {
