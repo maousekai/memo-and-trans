@@ -98,7 +98,7 @@ jobs:
       - name: Upload portable executable
         uses: actions/upload-artifact@v4
         with:
-          name: LexiGlass-Windows-portable-v18.2.1
+          name: LexiGlass-Windows-portable-v18.3.0
           path: |
             src-tauri/target/release/lexiglass.exe
             THIRD_PARTY_DATA.md
