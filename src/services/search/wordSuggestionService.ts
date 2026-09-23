@@ -1,5 +1,6 @@
 import { DEMO_DICTIONARY_ENTRIES } from "../../data/demoEntries";
 import type { SavedWord } from "../../types/study";
+import { localDictionaryService } from "../dictionary/localDictionaryService";
 
 export type WordSuggestionSource =
   | "dictionary"
@@ -43,7 +44,6 @@ interface Candidate {
 const HISTORY_KEY = "lexiglass_search_history_v1";
 
 const COMMON_CORRECTIONS: Record<string, string[]> = {
-  repaire: ["repair"],
   recieved: ["received"],
   recieve: ["receive"],
   recive: ["receive"],
@@ -126,7 +126,7 @@ const COMMON_WORDS = [
   "maintenance", "meaning", "method", "mitigate", "mitigation", "model", "natural", "necessary", "notice",
   "occur", "occurrence", "option", "organize", "performance", "phrase", "practice", "prefer", "prevent",
   "process", "produce", "production", "pronounce", "pronunciation", "quality", "question", "receive", "recognize",
-  "recommend", "recommendation", "repair", "repaired", "repairing", "reduce", "related", "remember", "research", "respond", "response", "result",
+  "recommend", "recommendation", "reduce", "related", "remember", "research", "respond", "response", "result",
   "retain", "retention", "review", "sentence", "separate", "similar", "simple", "specific", "spelling",
   "strategy", "structure", "study", "studies", "subtle", "subtly", "successful", "suggest", "suggestion",
   "support", "system", "technology", "translate", "translation", "understand", "usage", "useful", "valid",
@@ -290,6 +290,15 @@ class WordSuggestionService {
       if (!old || item.score > old.score) results.set(item.word, item);
     };
 
+    localDictionaryService.suggestPrefix(input, Math.max(limit * 2, 10)).forEach((item) => {
+      push({
+        word: item.word,
+        score: item.score,
+        source: "dictionary",
+        reason: "prefix",
+      });
+    });
+
     (COMMON_CORRECTIONS[input] || []).forEach((word, index) => {
       const meta = candidates.get(word);
       push({
@@ -345,6 +354,46 @@ class WordSuggestionService {
     });
 
     return [...results.values()].sort((a, b) => b.score - a.score || a.word.localeCompare(b.word)).slice(0, limit);
+  }
+
+  suggestCorrections(inputRaw: string, savedWords: SavedWord[] = [], limit = 5): WordSuggestion[] {
+    const input = normalizeWord(inputRaw);
+    if (!/^[a-z][a-z'-]{1,48}$/.test(input)) return [];
+
+    const results = new Map<string, WordSuggestion>();
+    const push = (item: WordSuggestion) => {
+      if (item.word === input) return;
+      const old = results.get(item.word);
+      if (!old || item.score > old.score) results.set(item.word, item);
+    };
+
+    localDictionaryService.suggestSpelling(input, Math.max(limit * 2, 8)).forEach((item) => {
+      push({
+        word: item.word,
+        score: item.score,
+        source: "spelling",
+        reason: "edit-distance",
+        editDistance: item.editDistance,
+      });
+    });
+
+    const personalCandidates = this.candidates(savedWords);
+    (COMMON_CORRECTIONS[input] || []).forEach((word, index) => {
+      const meta = personalCandidates.get(word);
+      push({
+        word,
+        score: 0.995 - index * 0.01,
+        source: "spelling",
+        reason: "common-typo",
+        editDistance: damerauLevenshtein(input, word),
+        partOfSpeech: meta?.partOfSpeech,
+        vietnameseMeaning: meta?.vietnameseMeaning,
+      });
+    });
+
+    return [...results.values()]
+      .sort((a, b) => (a.editDistance ?? 99) - (b.editDistance ?? 99) || b.score - a.score || a.word.localeCompare(b.word))
+      .slice(0, limit);
   }
 
   shouldAutoPreferSuggestion(inputRaw: string, suggestion?: WordSuggestion): boolean {
