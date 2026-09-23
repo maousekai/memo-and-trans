@@ -6,6 +6,10 @@ import { createInterface } from "node:readline";
 import { TOEIC_PRIORITY_WORDS } from "./toeic-priority-words.mjs";
 
 const OUTPUT = path.resolve("src/data/offlineDictionary10000.generated.ts");
+const OUTPUT_DATA_DIR = path.resolve("public/dictionary");
+const OUTPUT_SHARD_DIR = path.join(OUTPUT_DATA_DIR, "shards");
+const OUTPUT_META_JSON = path.join(OUTPUT_DATA_DIR, "meta.json");
+const OUTPUT_HEADWORDS_JSON = path.join(OUTPUT_DATA_DIR, "headwords.json");
 const DATA_SCHEMA_VERSION = 4;
 const MIN_EXPECTED_COUNT = 150000;
 const THICHHOC_REPO = "thichhoc-org/thichhoc-dict";
@@ -171,13 +175,16 @@ async function mapLimit(items, limit, mapper) {
 async function alreadyGenerated() {
   try {
     const current = await readFile(OUTPUT, "utf8");
+    const meta = JSON.parse(await readFile(OUTPUT_META_JSON, "utf8"));
     const version = current.match(/OFFLINE_DICTIONARY_SCHEMA_VERSION = (\d+)/);
     const count = current.match(/OFFLINE_DICTIONARY_10000_COUNT = (\d+)/);
     return Boolean(
       version &&
       Number(version[1]) === DATA_SCHEMA_VERSION &&
       count &&
-      Number(count[1]) >= MIN_EXPECTED_COUNT
+      Number(count[1]) >= MIN_EXPECTED_COUNT &&
+      Number(meta?.schemaVersion) === DATA_SCHEMA_VERSION &&
+      Number(meta?.headwordCount) >= MIN_EXPECTED_COUNT
     );
   } catch {
     return false;
@@ -465,11 +472,64 @@ for (const parts of Object.values(dictionary)) {
   }
 }
 
+function shardKey(value) {
+  const first = String(value || "").trim().toLowerCase()[0] || "_";
+  return /[a-z0-9]/.test(first) ? first : "_";
+}
+
+const shards = new Map();
+const getShard = (key) => {
+  if (!shards.has(key)) {
+    shards.set(key, {
+      entries: Object.create(null),
+      aliases: Object.create(null),
+    });
+  }
+  return shards.get(key);
+};
+
+for (const [word, parts] of Object.entries(dictionary)) {
+  getShard(shardKey(word)).entries[word] = parts;
+}
+for (const [form, lemma] of Object.entries(aliases)) {
+  getShard(shardKey(form)).aliases[form] = lemma;
+}
+
 await mkdir(path.dirname(OUTPUT), { recursive: true });
-const output = `${HEADER}export const OFFLINE_DICTIONARY_SCHEMA_VERSION = ${DATA_SCHEMA_VERSION};\nexport const OFFLINE_DICTIONARY_10000_COUNT = ${selected.length};\nexport const OFFLINE_DICTIONARY_EXAMPLE_WORD_COUNT = ${finalExampleWordCount};\nexport const OFFLINE_DICTIONARY_EXAMPLE_SENTENCE_COUNT = ${finalExampleSentenceCount};\nexport const OFFLINE_DICTIONARY_10000 = ${JSON.stringify(dictionary)};\nexport const OFFLINE_DICTIONARY_10000_ALIASES = ${JSON.stringify(aliases)};\n`;
+await mkdir(OUTPUT_SHARD_DIR, { recursive: true });
+
+const shardKeys = [...shards.keys()].sort();
+await Promise.all(shardKeys.map(async (key) => {
+  const payload = shards.get(key);
+  await writeFile(
+    path.join(OUTPUT_SHARD_DIR, `${key}.json`),
+    JSON.stringify(payload),
+    "utf8",
+  );
+}));
+
+const headwords = Object.keys(dictionary).sort();
+await writeFile(OUTPUT_HEADWORDS_JSON, JSON.stringify(headwords), "utf8");
+
+const meta = {
+  schemaVersion: DATA_SCHEMA_VERSION,
+  headwordCount: selected.length,
+  aliasCount: Object.keys(aliases).length,
+  exampleWordCount: finalExampleWordCount,
+  exampleSentenceCount: finalExampleSentenceCount,
+  shardKeys,
+};
+await writeFile(OUTPUT_META_JSON, JSON.stringify(meta), "utf8");
+
+const output = `${HEADER}export const OFFLINE_DICTIONARY_SCHEMA_VERSION = ${DATA_SCHEMA_VERSION};\nexport const OFFLINE_DICTIONARY_10000_COUNT = ${selected.length};\nexport const OFFLINE_DICTIONARY_ALIAS_COUNT = ${Object.keys(aliases).length};\nexport const OFFLINE_DICTIONARY_EXAMPLE_WORD_COUNT = ${finalExampleWordCount};\nexport const OFFLINE_DICTIONARY_EXAMPLE_SENTENCE_COUNT = ${finalExampleSentenceCount};\nexport const OFFLINE_DICTIONARY_SHARD_KEYS = ${JSON.stringify(shardKeys)} as const;\n`;
 await writeFile(OUTPUT, output, "utf8");
+
+const totalShardBytes = (await Promise.all(
+  shardKeys.map(async (key) => Buffer.byteLength(JSON.stringify(shards.get(key)))),
+)).reduce((sum, value) => sum + value, 0);
+
 console.log(`[offline-dict] generated ${selected.length} headwords/phrases and ${Object.keys(aliases).length} inflection aliases.`);
 console.log(`[offline-dict] example coverage: ${finalExampleWordCount} headwords / ${finalExampleSentenceCount} bilingual sentences.`);
 console.log(`[offline-dict] TOEIC/workplace priority coverage: ${priorityCoverage}/${TOEIC_PRIORITY_WORDS.length}.`);
 console.log(`[offline-dict] forced coverage: ${FORCE_INCLUDE.filter((word) => dictionary[word]).length}/${FORCE_INCLUDE.length}.`);
-console.log(`[offline-dict] output ${(Buffer.byteLength(output) / 1024 / 1024).toFixed(2)} MiB -> ${OUTPUT}`);
+console.log(`[offline-dict] wrote ${shardKeys.length} runtime shards + headword index (${(totalShardBytes / 1024 / 1024).toFixed(2)} MiB JSON) to ${OUTPUT_DATA_DIR}.`);
