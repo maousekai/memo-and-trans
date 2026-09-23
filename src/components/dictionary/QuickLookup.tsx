@@ -8,7 +8,7 @@ import { GlassSurface } from "../glass/GlassSurface";
 import { useAppStore, store } from "../../store/useAppStore";
 import { Volume2, Sparkles, AlertCircle, Copy, Check, Bookmark, BookmarkCheck, ArrowRight, Languages } from "lucide-react";
 import { speechService } from "../../services/pronunciation/speechService";
-import { wordSuggestionService } from "../../services/search/wordSuggestionService";
+import { localDictionaryService } from "../../services/dictionary/localDictionaryService";
 
 export const QuickLookup: React.FC = () => {
   const currentEntry = useAppStore((s) => s.currentEntry);
@@ -20,12 +20,9 @@ export const QuickLookup: React.FC = () => {
   const isDemoEntry = useAppStore((s) => s.isDemoEntry);
   const settings = useAppStore((s) => s.settings);
   const searchQuery = useAppStore((s) => s.searchQuery);
-  const savedWords = useAppStore((s) => s.savedWords);
-  const spellingCorrection = useAppStore((s) => s.spellingCorrection);
+  const dictionarySuggestions = useAppStore((s) => s.dictionarySuggestions);
   const isDictionaryMode = queryMode === "dictionary";
-  const errorSuggestions = isDictionaryMode && error
-    ? wordSuggestionService.suggest(searchQuery, savedWords, 5)
-    : [];
+  const resolvedLemma = isDictionaryMode ? localDictionaryService.resolveInflection(searchQuery) : null;
   const isSaved = isDictionaryMode ? store.isCurrentWordSaved() : false;
 
   const [copied, setCopied] = useState(false);
@@ -115,26 +112,36 @@ export const QuickLookup: React.FC = () => {
               <span>{isDictionaryMode ? "Không thể hoàn tất tra từ" : "Không thể dịch văn bản"}</span>
             </div>
             <p className="text-slate-300 leading-relaxed">{error}</p>
-            {isDictionaryMode && errorSuggestions.length > 0 && (
-              <div className="pt-2 flex items-center gap-1.5 flex-wrap">
-                <span className="text-[11px] text-slate-400">Có thể bạn muốn tra:</span>
-                {errorSuggestions.map((item) => (
-                  <button
-                    key={item.word}
-                    type="button"
-                    onClick={() => store.submitQuery(item.word)}
-                    className="px-2 py-0.5 rounded bg-white/10 hover:bg-cyan-500/20 text-cyan-200 text-[11px] border border-white/10 transition-colors"
-                    title={item.reason || "gợi ý chính tả"}
-                  >
-                    {item.word}
-                  </button>
-                ))}
-              </div>
-            )}
+
           </GlassSurface>
         )}
 
-        {!isLoading && !error && !currentEntry && !currentTranslation && (
+        {!isLoading && !error && isDictionaryMode && !currentEntry && dictionarySuggestions.length > 0 && (
+          <GlassSurface variant="inset" className="p-3 border-cyan-400/20 bg-cyan-400/[0.035] text-xs flex flex-col gap-2 my-2">
+            <div className="flex items-center gap-2 font-semibold text-cyan-100">
+              <Sparkles className="w-4 h-4 text-cyan-300" />
+              <span>Không thấy mục từ chính xác</span>
+            </div>
+            <p className="text-slate-300 leading-relaxed">
+              Gợi ý từ kho từ điển offline. LexiGlass không cần gọi AI để đoán từ.
+            </p>
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {dictionarySuggestions.map((item) => (
+                <button
+                  key={item.word}
+                  type="button"
+                  onClick={() => store.submitQuery(item.word)}
+                  className="px-2 py-1 rounded-lg bg-white/[0.07] hover:bg-cyan-500/20 text-cyan-200 text-[11px] border border-white/10 transition-colors"
+                  title={item.editDistance != null ? `Khoảng cách chính tả: ${item.editDistance}` : "Gợi ý từ điển"}
+                >
+                  {item.word}
+                </button>
+              ))}
+            </div>
+          </GlassSurface>
+        )}
+
+        {!isLoading && !error && !currentEntry && !currentTranslation && dictionarySuggestions.length === 0 && (
           <div className="py-4 px-2 text-center flex flex-col items-center gap-2">
             <p className="text-xs text-slate-300">
               Nhập một từ để tra, hoặc nhập/bôi đen cụm từ, câu hay đoạn tiếng Anh để dịch.
@@ -158,20 +165,20 @@ export const QuickLookup: React.FC = () => {
 
         {!isLoading && !error && isDictionaryMode && currentEntry && (
           <div className="space-y-3 animate-in fade-in duration-200">
-            {spellingCorrection && (
-              <div className="px-2.5 py-1.5 rounded-lg bg-amber-400/[0.07] border border-amber-300/[0.14] text-[11px] text-amber-100 flex items-center justify-between gap-2">
+            {(resolvedLemma || searchQuery.trim().toLowerCase() !== currentEntry.normalizedWord.toLowerCase()) && (
+              <div className="px-2.5 py-1.5 rounded-lg bg-cyan-400/[0.06] border border-cyan-300/[0.14] text-[11px] text-cyan-100 flex items-center justify-between gap-2">
                 <span>
-                  Đã sửa chính tả: <span className="line-through text-slate-400">{spellingCorrection.from}</span>
+                  Dạng từ: <span className="text-slate-300">{searchQuery.trim().toLowerCase()}</span>
                   {" → "}
                   <button
                     type="button"
-                    onClick={() => store.submitQuery(spellingCorrection.to)}
+                    onClick={() => store.submitQuery(resolvedLemma || currentEntry.normalizedWord)}
                     className="font-semibold text-cyan-200 hover:text-cyan-100"
                   >
-                    {spellingCorrection.to}
+                    {resolvedLemma || currentEntry.normalizedWord}
                   </button>
                 </span>
-                <span className="text-[10px] text-slate-500">offline</span>
+                <span className="text-[10px] text-slate-500">morphology offline</span>
               </div>
             )}
             {isDemoEntry && (

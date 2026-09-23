@@ -14,7 +14,7 @@ import {
   generatePhraseFlashcards,
   selectSmartPhraseCardType,
 } from "../services/fsrs/fsrsEngine";
-import { wordSuggestionService } from "../services/search/wordSuggestionService";
+import { wordSuggestionService, type WordSuggestion } from "../services/search/wordSuggestionService";
 import { localDictionaryService } from "../services/dictionary/localDictionaryService";
 import { classifyInput } from "../services/translation/inputClassifier";
 import { translationService } from "../services/translation/translationService";
@@ -38,7 +38,7 @@ interface AppState {
   isTranslating: boolean;
   isAnalyzingTranslation: boolean;
   translationProgressText: string | null;
-  spellingCorrection: { from: string; to: string } | null;
+  dictionarySuggestions: WordSuggestion[];
   lookupSource: LookupSource;
   error: string | null;
   isDemoEntry: boolean;
@@ -112,7 +112,7 @@ let state: AppState = {
   isTranslating: false,
   isAnalyzingTranslation: false,
   translationProgressText: null,
-  spellingCorrection: null,
+  dictionarySuggestions: [],
   lookupSource: "demo",
   error: null,
   isDemoEntry: true,
@@ -277,7 +277,7 @@ export const store = {
     if (!input) return;
     const mode = classifyInput(input);
     if (mode === "dictionary") {
-      updateState({ queryMode: mode, currentTranslation: null, isTranslating: false, isAnalyzingTranslation: false, translationProgressText: null, spellingCorrection: null });
+      updateState({ queryMode: mode, currentTranslation: null, isTranslating: false, isAnalyzingTranslation: false, translationProgressText: null, dictionarySuggestions: [] });
       await store.searchWord(input);
       return;
     }
@@ -299,7 +299,7 @@ export const store = {
       isTranslating: true,
       isAnalyzingTranslation: false,
       translationProgressText: null,
-      spellingCorrection: null,
+      dictionarySuggestions: [],
       isEnriching: false,
       error: null,
       lookupSource: null,
@@ -382,35 +382,23 @@ export const store = {
     const normalized = normalizeLookupWord(word);
     const startedAt = performance.now();
 
-    const directSaved = state.savedWords.find(
+    // Dictionary lookup is deliberately deterministic. AI is not on this path:
+    // exact saved/local data -> inflection alias (inside local lookup) -> public
+    // dictionary -> spelling suggestions from the complete offline lexicon.
+    const saved = state.savedWords.find(
       (item) => (item.normalizedWord || item.word).toLowerCase() === normalized,
     );
-    const directCached = forceRefresh ? null : readAiCache(normalized);
-    const directLocal = forceRefresh ? null : localDictionaryService.lookupInstant(normalized);
+    const local = forceRefresh ? null : localDictionaryService.lookupInstant(normalized);
+    const instantEntry = saved?.dictionary || local;
+    const instantSource: LookupSource = saved?.dictionary
+      ? "saved"
+      : local
+        ? (DEMO_DICTIONARY_ENTRIES[local.normalizedWord] ? "demo" : "local")
+        : null;
 
-    const topSuggestion = !directCached && !directSaved?.dictionary && !directLocal
-      ? wordSuggestionService.suggest(normalized, state.savedWords, 5)[0]
-      : undefined;
-    const shouldCorrect = wordSuggestionService.shouldAutoPreferSuggestion(normalized, topSuggestion);
-    const correctedWord = shouldCorrect && topSuggestion ? topSuggestion.word : null;
-
-    const correctedSaved = correctedWord
-      ? state.savedWords.find((item) => (item.normalizedWord || item.word).toLowerCase() === correctedWord)
-      : undefined;
-    const correctedCached = correctedWord && !forceRefresh ? readAiCache(correctedWord) : null;
-    const correctedLocal = correctedWord && !forceRefresh ? localDictionaryService.lookupInstant(correctedWord) : null;
-
-    const lookupTarget = correctedWord || normalized;
-    const instantEntry = directCached || directSaved?.dictionary || directLocal
-      || correctedCached || correctedSaved?.dictionary || correctedLocal;
-
-    const instantSource: LookupSource = directCached || correctedCached
-      ? "cache"
-      : directSaved?.dictionary || correctedSaved?.dictionary
-        ? "saved"
-        : directLocal || correctedLocal
-          ? (DEMO_DICTIONARY_ENTRIES[lookupTarget] ? "demo" : "local")
-          : null;
+    const corrections = instantEntry
+      ? []
+      : wordSuggestionService.suggestCorrections(normalized, state.savedWords, 5);
 
     updateState({
       queryMode: "dictionary",
@@ -418,9 +406,9 @@ export const store = {
       isTranslating: false,
       isAnalyzingTranslation: false,
       translationProgressText: null,
-      spellingCorrection: correctedWord ? { from: normalized, to: correctedWord } : null,
-      isLoading: !instantEntry,
-      isEnriching: Boolean(instantEntry && state.aiStatus.configured),
+      dictionarySuggestions: corrections,
+      isLoading: !instantEntry && corrections.length === 0,
+      isEnriching: false,
       error: null,
       searchQuery: word,
       currentEntry: instantEntry || null,
@@ -428,87 +416,53 @@ export const store = {
       isDemoEntry: instantSource === "demo",
     });
 
-    if (instantEntry) wordSuggestionService.recordSuccessfulSearch(instantEntry.normalizedWord);
-
-    const publicPromise = instantEntry
-      ? Promise.resolve<DictionaryEntry | null>(null)
-      : localDictionaryService.lookupPublic(lookupTarget, 1800);
-
-    const aiPromise = state.aiStatus.configured
-      ? withDeadline(aiService.lookupWord(lookupTarget, state.settings.defaultModel, true), 7600)
-      : null;
-
-    let fastEntry = instantEntry;
-
-    if (!fastEntry) {
-      const publicEntry = await publicPromise;
-      if (generation !== searchGeneration) return;
-
-      if (publicEntry) {
-        fastEntry = publicEntry;
-        wordSuggestionService.recordSuccessfulSearch(publicEntry.normalizedWord);
-        updateState({
-          currentEntry: publicEntry,
-          isLoading: false,
-          isEnriching: Boolean(aiPromise),
-          error: null,
-          lookupSource: "public",
-          isDemoEntry: false,
-        });
-      }
+    if (instantEntry) {
+      wordSuggestionService.recordSuccessfulSearch(instantEntry.normalizedWord);
+      return;
     }
 
-    if (aiPromise) {
-      try {
-        const aiEntry = await aiPromise;
-        if (generation !== searchGeneration) return;
-        const merged = localDictionaryService.mergeFastAndAi(fastEntry, aiEntry);
-        wordSuggestionService.recordSuccessfulSearch(merged.normalizedWord);
-        updateState({
-          currentEntry: merged,
-          isLoading: false,
-          isEnriching: false,
-          error: null,
-          lookupSource: "ai",
-          isDemoEntry: false,
-        });
-        return;
-      } catch (error) {
-        if (generation !== searchGeneration) return;
-        if (fastEntry) {
-          updateState({ isLoading: false, isEnriching: false, error: null });
-          return;
-        }
-
-        const message = String((error as any)?.message || error || "Dịch vụ AI đang tạm thời không phản hồi.");
-        const suggestions = wordSuggestionService.suggest(normalized, state.savedWords, 3)
-          .map((item) => item.word)
-          .filter((item) => item !== lookupTarget);
-        updateState({
-          isLoading: false,
-          isEnriching: false,
-          error: suggestions.length
-            ? `Chưa tìm được dữ liệu chắc chắn cho “${word}”. Dịch vụ AI đang gián đoạn. Có thể bạn muốn tra: ${suggestions.join(", ")}.`
-            : `Chưa tìm được dữ liệu chắc chắn cho “${word}”. Dịch vụ AI đang gián đoạn. ${message}`,
-          lookupSource: null,
-        });
-        return;
-      }
-    }
-
+    // Even when spelling suggestions exist, check the exact submitted form
+    // against a conventional online dictionary. This never blocks showing the
+    // offline suggestions and never invokes an LLM.
+    const publicEntry = await localDictionaryService.lookupPublic(normalized, 1800);
     if (generation !== searchGeneration) return;
-    if (fastEntry) {
-      updateState({ isLoading: false, isEnriching: false, error: null });
+
+    if (publicEntry) {
+      wordSuggestionService.recordSuccessfulSearch(publicEntry.normalizedWord);
+      updateState({
+        currentEntry: publicEntry,
+        dictionarySuggestions: [],
+        isLoading: false,
+        isEnriching: false,
+        error: null,
+        lookupSource: "public",
+        isDemoEntry: false,
+      });
+      return;
+    }
+
+    if (corrections.length > 0) {
+      updateState({
+        currentEntry: null,
+        dictionarySuggestions: corrections,
+        isLoading: false,
+        isEnriching: false,
+        error: null,
+        lookupSource: null,
+        isDemoEntry: false,
+      });
       return;
     }
 
     const elapsed = Math.round(performance.now() - startedAt);
     updateState({
+      currentEntry: null,
+      dictionarySuggestions: [],
       isLoading: false,
       isEnriching: false,
-      error: `Không tìm thấy “${word}” trong dữ liệu local/public (${elapsed} ms). Hãy kiểm tra chính tả hoặc kết nối AI để bổ sung nghĩa nâng cao.`,
-      spellingCorrection: null,
+      error: `Không tìm thấy mục từ chính xác “${word}” trong từ điển offline hoặc nguồn từ điển công khai (${elapsed} ms).`,
       lookupSource: null,
+      isDemoEntry: false,
     });
   },
 

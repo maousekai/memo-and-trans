@@ -50,7 +50,6 @@ const CORE_LEXICON: Record<string, CoreWord> = {
   grammar: { pos: "noun", vi: "ngữ pháp", en: "the rules for how words change and combine to form sentences", ipa: "/ˈɡræm.ər/" },
   pronunciation: { pos: "noun", vi: "phát âm; cách phát âm", en: "the way in which a word or language is spoken", ipa: "/prəˌnʌn.siˈeɪ.ʃən/" },
   response: { pos: "noun", vi: "phản hồi; câu trả lời", en: "an answer or reaction to something", ipa: "/rɪˈspɒns/" },
-  repair: { pos: "verb", vi: "sửa chữa; khắc phục", en: "to fix something that is damaged, broken, or not working properly", ipa: "/rɪˈpeər/", forms: ["repairs", "repairing", "repaired"], example: "The technician repaired the machine.", exampleVi: "Kỹ thuật viên đã sửa chữa chiếc máy." },
   result: { pos: "noun", vi: "kết quả", en: "something that happens because of an action or process", ipa: "/rɪˈzʌlt/" },
   improve: { pos: "verb", vi: "cải thiện", en: "to become better or make something better", ipa: "/ɪmˈpruːv/" },
   effective: { pos: "adjective", vi: "hiệu quả", en: "successful in producing the intended result", ipa: "/ɪˈfek.tɪv/" },
@@ -70,6 +69,109 @@ const CORE_LEXICON: Record<string, CoreWord> = {
 
 const publicCache = new Map<string, DictionaryEntry>();
 const inFlight = new Map<string, Promise<DictionaryEntry | null>>();
+
+export interface OfflineWordSuggestion {
+  word: string;
+  matchedForm?: string;
+  editDistance?: number;
+  score: number;
+  reason: "prefix" | "spelling";
+}
+
+type FuzzyCandidate = {
+  form: string;
+  lemma: string;
+  headword: boolean;
+};
+
+let offlineHeadwords: string[] | null = null;
+let fuzzyBuckets: Map<string, FuzzyCandidate[]> | null = null;
+
+function isSingleEnglishWord(value: string): boolean {
+  return /^[a-z][a-z'-]{1,47}$/.test(value);
+}
+
+function getOfflineHeadwords(): string[] {
+  if (!offlineHeadwords) {
+    offlineHeadwords = Object.keys(OFFLINE_DICTIONARY_10000)
+      .filter(isSingleEnglishWord)
+      .sort();
+  }
+  return offlineHeadwords;
+}
+
+function lowerBound(values: string[], target: string): number {
+  let low = 0;
+  let high = values.length;
+  while (low < high) {
+    const mid = (low + high) >> 1;
+    if (values[mid] < target) low = mid + 1;
+    else high = mid;
+  }
+  return low;
+}
+
+function bucketKey(value: string): string {
+  return `${value[0] || "_"}:${value.length}`;
+}
+
+function ensureFuzzyBuckets(): Map<string, FuzzyCandidate[]> {
+  if (fuzzyBuckets) return fuzzyBuckets;
+  const buckets = new Map<string, FuzzyCandidate[]>();
+  const add = (candidate: FuzzyCandidate) => {
+    if (!isSingleEnglishWord(candidate.form)) return;
+    const key = bucketKey(candidate.form);
+    const list = buckets.get(key) || [];
+    list.push(candidate);
+    buckets.set(key, list);
+  };
+
+  for (const word of getOfflineHeadwords()) {
+    add({ form: word, lemma: word, headword: true });
+  }
+  for (const [form, lemma] of Object.entries(OFFLINE_DICTIONARY_10000_ALIASES)) {
+    if (!OFFLINE_DICTIONARY_10000[lemma]) continue;
+    add({ form, lemma, headword: false });
+  }
+
+  fuzzyBuckets = buckets;
+  return buckets;
+}
+
+function maxEditDistance(length: number): number {
+  if (length <= 4) return 1;
+  if (length <= 8) return 2;
+  return 3;
+}
+
+function damerauLevenshtein(a: string, b: string): number {
+  if (a === b) return 0;
+  const rows = a.length + 1;
+  const cols = b.length + 1;
+  const matrix = Array.from({ length: rows }, () => Array<number>(cols).fill(0));
+  for (let i = 0; i < rows; i += 1) matrix[i][0] = i;
+  for (let j = 0; j < cols; j += 1) matrix[0][j] = j;
+
+  for (let i = 1; i < rows; i += 1) {
+    for (let j = 1; j < cols; j += 1) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      matrix[i][j] = Math.min(
+        matrix[i - 1][j] + 1,
+        matrix[i][j - 1] + 1,
+        matrix[i - 1][j - 1] + cost,
+      );
+      if (
+        i > 1 &&
+        j > 1 &&
+        a[i - 1] === b[j - 2] &&
+        a[i - 2] === b[j - 1]
+      ) {
+        matrix[i][j] = Math.min(matrix[i][j], matrix[i - 2][j - 2] + 1);
+      }
+    }
+  }
+  return matrix[a.length][b.length];
+}
 
 function normalizeWord(value: string): string {
   return value.trim().toLowerCase().replace(/^[^a-z]+|[^a-z'-]+$/g, "");
@@ -259,6 +361,7 @@ async function fetchWithTimeout(url: string, timeoutMs: number): Promise<Respons
 
 export const localDictionaryService = {
   offlineCount: OFFLINE_DICTIONARY_10000_COUNT,
+  offlineAliasCount: Object.keys(OFFLINE_DICTIONARY_10000_ALIASES).length,
 
   lookupInstant(rawWord: string): DictionaryEntry | null {
     const rawNormalized = normalizeWord(rawWord);
@@ -273,6 +376,86 @@ export const localDictionaryService = {
     const offline = offlineToEntry(word);
     if (offline) return offline;
     return publicCache.get(word) || readPersistentFastCache(word);
+  },
+
+  suggestPrefix(rawWord: string, limit = 8): OfflineWordSuggestion[] {
+    const prefix = normalizeWord(rawWord);
+    if (!isSingleEnglishWord(prefix)) return [];
+
+    const words = getOfflineHeadwords();
+    const start = lowerBound(words, prefix);
+    const output: OfflineWordSuggestion[] = [];
+    for (let index = start; index < words.length && output.length < limit; index += 1) {
+      const word = words[index];
+      if (!word.startsWith(prefix)) break;
+      if (word === prefix) continue;
+      output.push({
+        word,
+        score: Math.min(0.98, 0.78 + prefix.length / Math.max(word.length, 1) * 0.18),
+        reason: "prefix",
+      });
+    }
+    return output;
+  },
+
+  suggestSpelling(rawWord: string, limit = 5): OfflineWordSuggestion[] {
+    const input = normalizeWord(rawWord);
+    if (!isSingleEnglishWord(input)) return [];
+    if (offlineToEntry(input)) return [];
+
+    const allowed = maxEditDistance(input.length);
+    const buckets = ensureFuzzyBuckets();
+    const primary: FuzzyCandidate[] = [];
+
+    for (let length = Math.max(2, input.length - allowed); length <= input.length + allowed; length += 1) {
+      primary.push(...(buckets.get(`${input[0]}:${length}`) || []));
+    }
+
+    const scoreCandidates = (candidates: FuzzyCandidate[]) => {
+      const byLemma = new Map<string, OfflineWordSuggestion>();
+      for (const candidate of candidates) {
+        const distance = damerauLevenshtein(input, candidate.form);
+        if (distance > allowed) continue;
+        const similarity = 1 - distance / Math.max(input.length, candidate.form.length);
+        const score = Math.min(
+          0.999,
+          0.62 + similarity * 0.34 + (candidate.headword ? 0.025 : 0),
+        );
+        const existing = byLemma.get(candidate.lemma);
+        const suggestion: OfflineWordSuggestion = {
+          word: candidate.lemma,
+          matchedForm: candidate.headword ? undefined : candidate.form,
+          editDistance: distance,
+          score,
+          reason: "spelling",
+        };
+        if (!existing || suggestion.score > existing.score) byLemma.set(candidate.lemma, suggestion);
+      }
+      return [...byLemma.values()].sort(
+        (a, b) => (a.editDistance || 9) - (b.editDistance || 9)
+          || b.score - a.score
+          || a.word.localeCompare(b.word),
+      );
+    };
+
+    let ranked = scoreCandidates(primary);
+    if (!ranked.length) {
+      // Only pay the broader search cost when the first letter itself is likely
+      // mistyped. This path runs on submitted lookups, not on every keystroke.
+      const broader: FuzzyCandidate[] = [];
+      for (const [key, list] of buckets) {
+        const length = Number(key.split(":")[1]);
+        if (Math.abs(length - input.length) <= allowed) broader.push(...list);
+      }
+      ranked = scoreCandidates(broader);
+    }
+
+    return ranked.slice(0, limit);
+  },
+
+  resolveInflection(rawWord: string): string | null {
+    const word = normalizeWord(rawWord);
+    return OFFLINE_DICTIONARY_10000_ALIASES[word] || null;
   },
 
   async lookupPublic(rawWord: string, timeoutMs = 1800): Promise<DictionaryEntry | null> {

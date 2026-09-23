@@ -101,7 +101,7 @@ export class NvidiaNIMProvider implements AIProvider {
           configured: status.configured,
           defaultModel: DEFAULT_MODEL,
           provider: "NVIDIA NIM",
-          proxy: status.configured ? `${status.storage_type} · Dictionary/analysis: Nemotron Lightning · Translation: Riva v2` : "Chưa cấu hình API key",
+          proxy: status.configured ? `${status.storage_type} · Dictionary: offline lexicon · Analysis: Nemotron Lightning · Translation: Riva v2` : "Chưa cấu hình API key",
         };
       } catch {
         return { configured: false, defaultModel: DEFAULT_MODEL, provider: "NVIDIA NIM", proxy: "Native bridge unavailable" };
