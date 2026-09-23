@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dict:generate": "node scripts/generate-offline-dictionary.mjs",
+    "test:dictionary": "npm run dict:generate && bun test tests/translation-v18.test.ts",
     "dev": "npm run dict:generate && tsx server.ts",
     "build": "npm run dict:generate && vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
     "start": "node dist/server.cjs",
