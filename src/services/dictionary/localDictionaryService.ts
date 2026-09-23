@@ -1,10 +1,11 @@
-import type { DictionaryEntry, PartOfSpeech } from "../../types/dictionary";
+import type { DictionaryEntry, Example, PartOfSpeech } from "../../types/dictionary";
 import { DEMO_DICTIONARY_ENTRIES } from "../../data/demoEntries";
 import { TOEIC_CORE_ENTRIES, TOEIC_QUERY_ALIASES } from "../../data/toeicCoreEntries";
 import {
   OFFLINE_DICTIONARY_10000,
   OFFLINE_DICTIONARY_10000_COUNT,
   OFFLINE_DICTIONARY_10000_ALIASES,
+  OFFLINE_DICTIONARY_EXAMPLE_WORD_COUNT,
 } from "../../data/offlineDictionary10000.generated";
 
 interface CoreWord {
@@ -28,6 +29,8 @@ interface OfflinePackedPart {
 
 const FAST_CACHE_PREFIX = "lexiglass_fast_dict_cache_";
 const FAST_CACHE_MAX_AGE_MS = 1000 * 60 * 60 * 24 * 30;
+const EXAMPLE_CACHE_PREFIX = "lexiglass_dict_examples_v1_";
+const EXAMPLE_CACHE_MAX_AGE_MS = 1000 * 60 * 60 * 24 * 90;
 
 const CORE_LEXICON: Record<string, CoreWord> = {
   manager: { pos: "noun", vi: "người quản lý; quản lý", en: "a person responsible for controlling or organizing part of a business or organization", ipa: "/ˈmæn.ɪ.dʒər/", forms: ["managers"], example: "She works as a project manager.", exampleVi: "Cô ấy làm việc với vai trò quản lý dự án." },
@@ -174,7 +177,21 @@ function damerauLevenshtein(a: string, b: string): number {
 }
 
 function normalizeWord(value: string): string {
-  return value.trim().toLowerCase().replace(/^[^a-z]+|[^a-z'-]+$/g, "");
+  let normalized = String(value || "")
+    .normalize("NFKC")
+    .trim()
+    .toLowerCase()
+    .replace(/[’‘]/g, "'")
+    .replace(/[“”]/g, '"')
+    .replace(/\s+/g, " ");
+
+  // Strip normal sentence punctuation around a lookup, but preserve dictionary
+  // punctuation inside terms such as 24/7, a/c, dot-com, C++, and .22.
+  normalized = normalized.replace(/^[\"\s]+|[\"\s]+$/g, "");
+  if (/^[a-z][a-z'-]*[!?;,.:]$/i.test(normalized)) {
+    normalized = normalized.slice(0, -1);
+  }
+  return normalized;
 }
 
 function resolveToeicQuery(value: string): string {
@@ -224,6 +241,70 @@ function writePersistentFastCache(word: string, entry: DictionaryEntry): void {
   } catch {
     // Fast cache is an optimization only; memory cache still works.
   }
+}
+
+function entryHasExamples(entry: DictionaryEntry | null | undefined): boolean {
+  return Boolean(entry?.partsOfSpeech?.some((part) =>
+    part.meanings?.some((meaning) => Array.isArray(meaning.examples) && meaning.examples.length > 0)
+  ));
+}
+
+function readPersistentExampleCache(word: string): Example[] {
+  try {
+    const raw = localStorage.getItem(`${EXAMPLE_CACHE_PREFIX}${word}`);
+    if (!raw) return [];
+    const payload = JSON.parse(raw) as { cachedAt: number; examples: Example[] };
+    if (
+      !Array.isArray(payload?.examples) ||
+      Date.now() - Number(payload.cachedAt || 0) > EXAMPLE_CACHE_MAX_AGE_MS
+    ) {
+      localStorage.removeItem(`${EXAMPLE_CACHE_PREFIX}${word}`);
+      return [];
+    }
+    return payload.examples.filter((item) => item?.english).slice(0, 2);
+  } catch {
+    return [];
+  }
+}
+
+function writePersistentExampleCache(word: string, examples: Example[]): void {
+  if (!examples.length) return;
+  try {
+    localStorage.setItem(
+      `${EXAMPLE_CACHE_PREFIX}${word}`,
+      JSON.stringify({ cachedAt: Date.now(), examples: examples.slice(0, 2) }),
+    );
+  } catch {
+    // Example caching is optional.
+  }
+}
+
+function mergeExamplesIntoEntry(entry: DictionaryEntry, examples: Example[]): DictionaryEntry {
+  if (!examples.length || entryHasExamples(entry)) return entry;
+  const partsOfSpeech = entry.partsOfSpeech.map((part, partIndex) => ({
+    ...part,
+    meanings: part.meanings.map((meaning, meaningIndex) => (
+      partIndex === 0 && meaningIndex === 0
+        ? { ...meaning, examples: examples.slice(0, 2) }
+        : meaning
+    )),
+  }));
+  return { ...entry, partsOfSpeech };
+}
+
+function extractPublicExamples(payload: any): Example[] {
+  const examples: Example[] = [];
+  for (const entry of Array.isArray(payload) ? payload : []) {
+    for (const meaning of Array.isArray(entry?.meanings) ? entry.meanings : []) {
+      for (const definition of Array.isArray(meaning?.definitions) ? meaning.definitions : []) {
+        const english = String(definition?.example || "").trim();
+        if (!english || examples.some((item) => item.english === english)) continue;
+        examples.push({ english, vietnamese: "" });
+        if (examples.length >= 2) return examples;
+      }
+    }
+  }
+  return examples;
 }
 
 function coreToEntry(word: string, core: CoreWord): DictionaryEntry {
@@ -362,20 +443,23 @@ async function fetchWithTimeout(url: string, timeoutMs: number): Promise<Respons
 export const localDictionaryService = {
   offlineCount: OFFLINE_DICTIONARY_10000_COUNT,
   offlineAliasCount: Object.keys(OFFLINE_DICTIONARY_10000_ALIASES).length,
+  offlineExampleWordCount: OFFLINE_DICTIONARY_EXAMPLE_WORD_COUNT,
 
   lookupInstant(rawWord: string): DictionaryEntry | null {
     const rawNormalized = normalizeWord(rawWord);
     if (!rawNormalized) return null;
     const word = resolveToeicQuery(rawNormalized);
+    const cachedExamples = readPersistentExampleCache(word);
     const toeic = TOEIC_CORE_ENTRIES[word];
-    if (toeic) return toeic;
+    if (toeic) return mergeExamplesIntoEntry(toeic, cachedExamples);
     const demo = DEMO_DICTIONARY_ENTRIES[word];
-    if (demo) return demo;
+    if (demo) return mergeExamplesIntoEntry(demo, cachedExamples);
     const core = CORE_LEXICON[word];
-    if (core) return coreToEntry(word, core);
+    if (core) return mergeExamplesIntoEntry(coreToEntry(word, core), cachedExamples);
     const offline = offlineToEntry(word);
-    if (offline) return offline;
-    return publicCache.get(word) || readPersistentFastCache(word);
+    if (offline) return mergeExamplesIntoEntry(offline, cachedExamples);
+    const cached = publicCache.get(word) || readPersistentFastCache(word);
+    return cached ? mergeExamplesIntoEntry(cached, cachedExamples) : null;
   },
 
   suggestPrefix(rawWord: string, limit = 8): OfflineWordSuggestion[] {
@@ -492,6 +576,34 @@ export const localDictionaryService = {
 
     inFlight.set(word, task);
     return task;
+  },
+
+  hasExamples(entry: DictionaryEntry | null | undefined): boolean {
+    return entryHasExamples(entry);
+  },
+
+  async enrichExamples(entry: DictionaryEntry, timeoutMs = 1800): Promise<DictionaryEntry> {
+    if (entryHasExamples(entry)) return entry;
+    const word = normalizeWord(entry.normalizedWord || entry.query);
+    if (!word || word.includes(" ")) return entry;
+
+    const cachedExamples = readPersistentExampleCache(word);
+    if (cachedExamples.length) return mergeExamplesIntoEntry(entry, cachedExamples);
+
+    try {
+      const response = await fetchWithTimeout(
+        `https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(word)}`,
+        timeoutMs,
+      );
+      if (!response.ok) return entry;
+      const payload = await response.json();
+      const examples = extractPublicExamples(payload);
+      if (!examples.length) return entry;
+      writePersistentExampleCache(word, examples);
+      return mergeExamplesIntoEntry(entry, examples);
+    } catch {
+      return entry;
+    }
   },
 
   prefetch(rawWord: string): void {
