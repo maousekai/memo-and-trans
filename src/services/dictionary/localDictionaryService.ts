@@ -542,7 +542,7 @@ async function fetchWithTimeout(url: string, timeoutMs: number): Promise<Respons
 
 export const localDictionaryService = {
   offlineCount: OFFLINE_DICTIONARY_10000_COUNT,
-  offlineAliasCount: Object.keys(OFFLINE_DICTIONARY_10000_ALIASES).length,
+  offlineAliasCount: OFFLINE_DICTIONARY_ALIAS_COUNT,
   offlineExampleWordCount: OFFLINE_DICTIONARY_EXAMPLE_WORD_COUNT,
 
   lookupInstant(rawWord: string): DictionaryEntry | null {
@@ -550,109 +550,130 @@ export const localDictionaryService = {
     if (!rawNormalized) return null;
     const word = resolveToeicQuery(rawNormalized);
     const cachedExamples = readPersistentExampleCache(word);
+
     const toeic = TOEIC_CORE_ENTRIES[word];
     if (toeic) return mergeExamplesIntoEntry(toeic, cachedExamples);
+
     const demo = DEMO_DICTIONARY_ENTRIES[word];
     if (demo) return mergeExamplesIntoEntry(demo, cachedExamples);
+
     const core = CORE_LEXICON[word];
     if (core) return mergeExamplesIntoEntry(coreToEntry(word, core), cachedExamples);
-    const offline = offlineToEntry(word);
+
+    const offline = entryFromLoadedShard(word);
     if (offline) return mergeExamplesIntoEntry(offline, cachedExamples);
+
     const cached = publicCache.get(word) || readPersistentFastCache(word);
     return cached ? mergeExamplesIntoEntry(cached, cachedExamples) : null;
+  },
+
+  async lookupOffline(rawWord: string): Promise<DictionaryEntry | null> {
+    const rawNormalized = normalizeWord(rawWord);
+    if (!rawNormalized) return null;
+    const word = resolveToeicQuery(rawNormalized);
+
+    const instant = this.lookupInstant(word);
+    if (instant) return instant;
+
+    const shard = await loadShard(shardKey(word));
+    let baseWord = word;
+    let packed = shard.entries[word];
+
+    if (!packed) {
+      const lemma = shard.aliases[word];
+      if (!lemma) return null;
+      baseWord = lemma;
+
+      const lemmaShard = shardKey(lemma) === shardKey(word)
+        ? shard
+        : await loadShard(shardKey(lemma));
+      packed = lemmaShard.entries[lemma];
+    }
+
+    const entry = packedToEntry(baseWord, packed);
+    if (!entry) return null;
+    offlineEntryCache.set(baseWord, entry);
+
+    return mergeExamplesIntoEntry(entry, readPersistentExampleCache(baseWord));
   },
 
   suggestPrefix(rawWord: string, limit = 8): OfflineWordSuggestion[] {
     const prefix = normalizeWord(rawWord);
     if (!isSingleEnglishWord(prefix)) return [];
 
-    const words = getOfflineHeadwords();
-    const start = lowerBound(words, prefix);
-    const output: OfflineWordSuggestion[] = [];
-    for (let index = start; index < words.length && output.length < limit; index += 1) {
-      const word = words[index];
-      if (!word.startsWith(prefix)) break;
-      if (word === prefix) continue;
-      output.push({
+    const shard = shardCache.get(shardKey(prefix));
+    if (!shard) return [];
+
+    return Object.keys(shard.entries)
+      .filter((word) => word !== prefix && word.startsWith(prefix) && isSingleEnglishWord(word))
+      .sort()
+      .slice(0, limit)
+      .map((word) => ({
         word,
         score: Math.min(0.98, 0.78 + prefix.length / Math.max(word.length, 1) * 0.18),
-        reason: "prefix",
-      });
-    }
-    return output;
+        reason: "prefix" as const,
+      }));
+  },
+
+  async suggestPrefixAsync(rawWord: string, limit = 8): Promise<OfflineWordSuggestion[]> {
+    const prefix = normalizeWord(rawWord);
+    if (!isSingleEnglishWord(prefix)) return [];
+    await loadShard(shardKey(prefix));
+    return this.suggestPrefix(prefix, limit);
   },
 
   suggestSpelling(rawWord: string, limit = 5): OfflineWordSuggestion[] {
     const input = normalizeWord(rawWord);
     if (!isSingleEnglishWord(input)) return [];
-    if (offlineToEntry(input)) return [];
+    if (entryFromLoadedShard(input)) return [];
+    return rankSpellingCandidates(input, loadedShardCandidates(input), limit);
+  },
 
-    const allowed = maxEditDistance(input.length);
-    const buckets = ensureFuzzyBuckets();
-    const primary: FuzzyCandidate[] = [];
+  async suggestSpellingAsync(rawWord: string, limit = 5): Promise<OfflineWordSuggestion[]> {
+    const input = normalizeWord(rawWord);
+    if (!isSingleEnglishWord(input)) return [];
 
-    for (let length = Math.max(2, input.length - allowed); length <= input.length + allowed; length += 1) {
-      primary.push(...(buckets.get(`${input[0]}:${length}`) || []));
-    }
+    await loadShard(shardKey(input));
+    if (entryFromLoadedShard(input)) return [];
 
-    const scoreCandidates = (candidates: FuzzyCandidate[]) => {
-      const byLemma = new Map<string, OfflineWordSuggestion>();
-      for (const candidate of candidates) {
-        const distance = damerauLevenshtein(input, candidate.form);
-        if (distance > allowed) continue;
-        const similarity = 1 - distance / Math.max(input.length, candidate.form.length);
-        const score = Math.min(
-          0.999,
-          0.62 + similarity * 0.34 + (candidate.headword ? 0.025 : 0),
-        );
-        const existing = byLemma.get(candidate.lemma);
-        const suggestion: OfflineWordSuggestion = {
-          word: candidate.lemma,
-          matchedForm: candidate.headword ? undefined : candidate.form,
-          editDistance: distance,
-          score,
-          reason: "spelling",
-        };
-        if (!existing || suggestion.score > existing.score) byLemma.set(candidate.lemma, suggestion);
-      }
-      return [...byLemma.values()].sort(
-        (a, b) => (a.editDistance || 9) - (b.editDistance || 9)
-          || b.score - a.score
-          || a.word.localeCompare(b.word),
-      );
-    };
+    const primary = rankSpellingCandidates(input, loadedShardCandidates(input), limit);
+    if (primary.length) return primary;
 
-    let ranked = scoreCandidates(primary);
-    if (!ranked.length) {
-      // Only pay the broader search cost when the first letter itself is likely
-      // mistyped. This path runs on submitted lookups, not on every keystroke.
-      const broader: FuzzyCandidate[] = [];
-      for (const [key, list] of buckets) {
-        const length = Number(key.split(":")[1]);
-        if (Math.abs(length - input.length) <= allowed) broader.push(...list);
-      }
-      ranked = scoreCandidates(broader);
-    }
+    // A first-letter typo cannot be found in the current shard. Load only the
+    // compact headword index at this point; the 46MB definitions remain sharded.
+    const headwords = await loadAllHeadwords();
+    const broader: FuzzyCandidate[] = headwords
+      .filter((word) => Math.abs(word.length - input.length) <= maxEditDistance(input.length))
+      .map((word) => ({ form: word, lemma: word, headword: true }));
 
-    return ranked.slice(0, limit);
+    return rankSpellingCandidates(input, broader, limit);
   },
 
   resolveInflection(rawWord: string): string | null {
     const word = normalizeWord(rawWord);
-    return OFFLINE_DICTIONARY_10000_ALIASES[word] || null;
+    if (!word) return null;
+    return shardCache.get(shardKey(word))?.aliases?.[word] || null;
+  },
+
+  async resolveInflectionAsync(rawWord: string): Promise<string | null> {
+    const word = normalizeWord(rawWord);
+    if (!word) return null;
+    const shard = await loadShard(shardKey(word));
+    return shard.aliases[word] || null;
   },
 
   async lookupPublic(rawWord: string, timeoutMs = 1800): Promise<DictionaryEntry | null> {
     const rawNormalized = normalizeWord(rawWord);
     if (!rawNormalized) return null;
     const word = resolveToeicQuery(rawNormalized);
-    const toeic = TOEIC_CORE_ENTRIES[word];
-    if (toeic) return toeic;
-    if (word.includes(" ")) return null;
-    const offline = offlineToEntry(word);
+
+    const offline = await this.lookupOffline(word);
     if (offline) return offline;
+
     const cached = publicCache.get(word) || readPersistentFastCache(word);
     if (cached) return cached;
+    if (word.includes(" ")) return null;
+
     const existing = inFlight.get(word);
     if (existing) return existing;
 
@@ -709,7 +730,7 @@ export const localDictionaryService = {
   prefetch(rawWord: string): void {
     const word = resolveToeicQuery(rawWord);
     if (!word || this.lookupInstant(word)) return;
-    void this.lookupPublic(word, 2000);
+    void this.lookupOffline(word);
   },
 
   mergeFastAndAi(fast: DictionaryEntry | null, ai: DictionaryEntry): DictionaryEntry {
