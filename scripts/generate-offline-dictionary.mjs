@@ -483,13 +483,20 @@ const getShard = (key) => {
     shards.set(key, {
       entries: Object.create(null),
       aliases: Object.create(null),
+      ranks: Object.create(null),
     });
   }
   return shards.get(key);
 };
 
 for (const [word, parts] of Object.entries(dictionary)) {
-  getShard(shardKey(word)).entries[word] = parts;
+  const shard = getShard(shardKey(word));
+  shard.entries[word] = parts;
+  const source = selectedMap.get(word);
+  shard.ranks[word] = [
+    Number(source?.tier || 99),
+    Number(source?.freq || 0),
+  ];
 }
 for (const [form, lemma] of Object.entries(aliases)) {
   getShard(shardKey(form)).aliases[form] = lemma;
