@@ -63,9 +63,11 @@ export const MeaningCard: React.FC<MeaningCardProps> = ({ meaning, index }) => {
                   <Volume2 className="w-3 h-3" />
                 </button>
               </div>
-              <p className="text-slate-400 text-[11px] leading-normal">
-                {ex.vietnamese}
-              </p>
+              {ex.vietnamese && (
+                <p className="text-slate-400 text-[11px] leading-normal">
+                  {ex.vietnamese}
+                </p>
+              )}
             </GlassSurface>
           ))}
         </div>
