@@ -8,6 +8,7 @@ import { GlassSurface } from "../glass/GlassSurface";
 import { useAppStore, store } from "../../store/useAppStore";
 import { Volume2, Sparkles, AlertCircle, Copy, Check, Bookmark, BookmarkCheck, ArrowRight, Languages } from "lucide-react";
 import { speechService } from "../../services/pronunciation/speechService";
+import { localDictionaryService } from "../../services/dictionary/localDictionaryService";
 
 export const QuickLookup: React.FC = () => {
   const currentEntry = useAppStore((s) => s.currentEntry);
@@ -21,6 +22,7 @@ export const QuickLookup: React.FC = () => {
   const searchQuery = useAppStore((s) => s.searchQuery);
   const dictionarySuggestions = useAppStore((s) => s.dictionarySuggestions);
   const isDictionaryMode = queryMode === "dictionary";
+  const resolvedLemma = isDictionaryMode ? localDictionaryService.resolveInflection(searchQuery) : null;
   const isSaved = isDictionaryMode ? store.isCurrentWordSaved() : false;
 
   const [copied, setCopied] = useState(false);
@@ -163,12 +165,18 @@ export const QuickLookup: React.FC = () => {
 
         {!isLoading && !error && isDictionaryMode && currentEntry && (
           <div className="space-y-3 animate-in fade-in duration-200">
-            {searchQuery.trim().toLowerCase() !== currentEntry.normalizedWord.toLowerCase() && (
+            {(resolvedLemma || searchQuery.trim().toLowerCase() !== currentEntry.normalizedWord.toLowerCase()) && (
               <div className="px-2.5 py-1.5 rounded-lg bg-cyan-400/[0.06] border border-cyan-300/[0.14] text-[11px] text-cyan-100 flex items-center justify-between gap-2">
                 <span>
                   Dạng từ: <span className="text-slate-300">{searchQuery.trim().toLowerCase()}</span>
                   {" → "}
-                  <span className="font-semibold text-cyan-200">{currentEntry.normalizedWord}</span>
+                  <button
+                    type="button"
+                    onClick={() => store.submitQuery(resolvedLemma || currentEntry.normalizedWord)}
+                    className="font-semibold text-cyan-200 hover:text-cyan-100"
+                  >
+                    {resolvedLemma || currentEntry.normalizedWord}
+                  </button>
                 </span>
                 <span className="text-[10px] text-slate-500">morphology offline</span>
               </div>
