@@ -378,13 +378,7 @@ function coreToEntry(word: string, core: CoreWord): DictionaryEntry {
   };
 }
 
-function offlineToEntry(requestedWord: string): DictionaryEntry | null {
-  const baseWord = OFFLINE_DICTIONARY_10000[requestedWord]
-    ? requestedWord
-    : OFFLINE_DICTIONARY_10000_ALIASES[requestedWord];
-  if (!baseWord) return null;
-
-  const packed = OFFLINE_DICTIONARY_10000[baseWord] as OfflinePackedPart[] | undefined;
+function packedToEntry(baseWord: string, packed: OfflinePackedPart[] | undefined): DictionaryEntry | null {
   if (!packed?.length) return null;
 
   const partsOfSpeech: PartOfSpeech[] = packed.map((part, partIndex) => {
@@ -425,6 +419,72 @@ function offlineToEntry(requestedWord: string): DictionaryEntry | null {
     commonMistakes: [],
     mnemonic: null,
   };
+}
+
+function entryFromLoadedShard(word: string): DictionaryEntry | null {
+  const directCached = offlineEntryCache.get(word);
+  if (directCached) return directCached;
+
+  const shard = shardCache.get(shardKey(word));
+  if (!shard) return null;
+
+  const direct = packedToEntry(word, shard.entries[word]);
+  if (direct) {
+    offlineEntryCache.set(word, direct);
+    return direct;
+  }
+
+  const lemma = shard.aliases[word];
+  if (!lemma) return null;
+
+  const lemmaCached = offlineEntryCache.get(lemma);
+  if (lemmaCached) return lemmaCached;
+
+  const lemmaShard = shardCache.get(shardKey(lemma));
+  if (!lemmaShard) return null;
+  const resolved = packedToEntry(lemma, lemmaShard.entries[lemma]);
+  if (resolved) offlineEntryCache.set(lemma, resolved);
+  return resolved;
+}
+
+function rankSpellingCandidates(
+  input: string,
+  candidates: FuzzyCandidate[],
+  limit: number,
+): OfflineWordSuggestion[] {
+  const allowed = maxEditDistance(input.length);
+  const byLemma = new Map<string, OfflineWordSuggestion>();
+
+  for (const candidate of candidates) {
+    if (Math.abs(candidate.form.length - input.length) > allowed) continue;
+    const distance = damerauLevenshtein(input, candidate.form);
+    if (distance > allowed) continue;
+
+    const similarity = 1 - distance / Math.max(input.length, candidate.form.length);
+    const score = Math.min(
+      0.999,
+      0.62 + similarity * 0.34 + (candidate.headword ? 0.025 : 0),
+    );
+    const suggestion: OfflineWordSuggestion = {
+      word: candidate.lemma,
+      matchedForm: candidate.headword ? undefined : candidate.form,
+      editDistance: distance,
+      score,
+      reason: "spelling",
+    };
+    const existing = byLemma.get(candidate.lemma);
+    if (!existing || suggestion.score > existing.score) {
+      byLemma.set(candidate.lemma, suggestion);
+    }
+  }
+
+  return [...byLemma.values()]
+    .sort(
+      (a, b) => (a.editDistance ?? 99) - (b.editDistance ?? 99)
+        || b.score - a.score
+        || a.word.localeCompare(b.word),
+    )
+    .slice(0, limit);
 }
 
 function mapPublicEntry(word: string, raw: any): DictionaryEntry | null {
