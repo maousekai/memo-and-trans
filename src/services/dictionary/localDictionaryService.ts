@@ -2,9 +2,8 @@ import type { DictionaryEntry, Example, PartOfSpeech } from "../../types/diction
 import { DEMO_DICTIONARY_ENTRIES } from "../../data/demoEntries";
 import { TOEIC_CORE_ENTRIES, TOEIC_QUERY_ALIASES } from "../../data/toeicCoreEntries";
 import {
-  OFFLINE_DICTIONARY_10000,
   OFFLINE_DICTIONARY_10000_COUNT,
-  OFFLINE_DICTIONARY_10000_ALIASES,
+  OFFLINE_DICTIONARY_ALIAS_COUNT,
   OFFLINE_DICTIONARY_EXAMPLE_WORD_COUNT,
 } from "../../data/offlineDictionary10000.generated";
 
@@ -71,7 +70,13 @@ const CORE_LEXICON: Record<string, CoreWord> = {
 };
 
 const publicCache = new Map<string, DictionaryEntry>();
+const offlineEntryCache = new Map<string, DictionaryEntry>();
 const inFlight = new Map<string, Promise<DictionaryEntry | null>>();
+
+interface OfflineShard {
+  entries: Record<string, OfflinePackedPart[]>;
+  aliases: Record<string, string>;
+}
 
 export interface OfflineWordSuggestion {
   word: string;
@@ -87,58 +92,93 @@ type FuzzyCandidate = {
   headword: boolean;
 };
 
+const shardCache = new Map<string, OfflineShard>();
+const shardPromises = new Map<string, Promise<OfflineShard>>();
 let offlineHeadwords: string[] | null = null;
-let fuzzyBuckets: Map<string, FuzzyCandidate[]> | null = null;
+let headwordPromise: Promise<string[]> | null = null;
 
 function isSingleEnglishWord(value: string): boolean {
   return /^[a-z][a-z'-]{1,47}$/.test(value);
 }
 
-function getOfflineHeadwords(): string[] {
-  if (!offlineHeadwords) {
-    offlineHeadwords = Object.keys(OFFLINE_DICTIONARY_10000)
-      .filter(isSingleEnglishWord)
-      .sort();
-  }
-  return offlineHeadwords;
+function shardKey(value: string): string {
+  const first = String(value || "").trim().toLowerCase()[0] || "_";
+  return /[a-z0-9]/.test(first) ? first : "_";
 }
 
-function lowerBound(values: string[], target: string): number {
-  let low = 0;
-  let high = values.length;
-  while (low < high) {
-    const mid = (low + high) >> 1;
-    if (values[mid] < target) low = mid + 1;
-    else high = mid;
-  }
-  return low;
+function dictionaryAssetUrl(relativePath: string): string {
+  return new URL(`/dictionary/${relativePath}`, window.location.href).toString();
 }
 
-function bucketKey(value: string): string {
-  return `${value[0] || "_"}:${value.length}`;
+async function loadShard(key: string): Promise<OfflineShard> {
+  const cached = shardCache.get(key);
+  if (cached) return cached;
+
+  const existing = shardPromises.get(key);
+  if (existing) return existing;
+
+  const task = (async () => {
+    try {
+      const response = await fetch(dictionaryAssetUrl(`shards/${encodeURIComponent(key)}.json`), {
+        cache: "force-cache",
+      });
+      if (!response.ok) return { entries: {}, aliases: {} };
+      const payload = await response.json() as OfflineShard;
+      const normalized: OfflineShard = {
+        entries: payload?.entries || {},
+        aliases: payload?.aliases || {},
+      };
+      shardCache.set(key, normalized);
+      return normalized;
+    } catch {
+      const empty = { entries: {}, aliases: {} };
+      shardCache.set(key, empty);
+      return empty;
+    } finally {
+      shardPromises.delete(key);
+    }
+  })();
+
+  shardPromises.set(key, task);
+  return task;
 }
 
-function ensureFuzzyBuckets(): Map<string, FuzzyCandidate[]> {
-  if (fuzzyBuckets) return fuzzyBuckets;
-  const buckets = new Map<string, FuzzyCandidate[]>();
-  const add = (candidate: FuzzyCandidate) => {
-    if (!isSingleEnglishWord(candidate.form)) return;
-    const key = bucketKey(candidate.form);
-    const list = buckets.get(key) || [];
-    list.push(candidate);
-    buckets.set(key, list);
-  };
+async function loadAllHeadwords(): Promise<string[]> {
+  if (offlineHeadwords) return offlineHeadwords;
+  if (headwordPromise) return headwordPromise;
 
-  for (const word of getOfflineHeadwords()) {
-    add({ form: word, lemma: word, headword: true });
-  }
-  for (const [form, lemma] of Object.entries(OFFLINE_DICTIONARY_10000_ALIASES)) {
-    if (!OFFLINE_DICTIONARY_10000[lemma]) continue;
-    add({ form, lemma, headword: false });
-  }
+  headwordPromise = (async () => {
+    try {
+      const response = await fetch(dictionaryAssetUrl("headwords.json"), { cache: "force-cache" });
+      if (!response.ok) return [];
+      const values = await response.json();
+      offlineHeadwords = Array.isArray(values)
+        ? values.map((item) => String(item)).filter(isSingleEnglishWord)
+        : [];
+      return offlineHeadwords;
+    } catch {
+      offlineHeadwords = [];
+      return offlineHeadwords;
+    } finally {
+      headwordPromise = null;
+    }
+  })();
 
-  fuzzyBuckets = buckets;
-  return buckets;
+  return headwordPromise;
+}
+
+function loadedShardCandidates(input: string): FuzzyCandidate[] {
+  const shard = shardCache.get(shardKey(input));
+  if (!shard) return [];
+  const candidates: FuzzyCandidate[] = [];
+
+  for (const word of Object.keys(shard.entries)) {
+    if (isSingleEnglishWord(word)) candidates.push({ form: word, lemma: word, headword: true });
+  }
+  for (const [form, lemma] of Object.entries(shard.aliases)) {
+    if (isSingleEnglishWord(form)) candidates.push({ form, lemma, headword: false });
+  }
+  return candidates;
 }
 
 function maxEditDistance(length: number): number {
