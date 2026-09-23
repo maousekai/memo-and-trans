@@ -561,19 +561,26 @@ export const localDictionaryService = {
     if (core) return mergeExamplesIntoEntry(coreToEntry(word, core), cachedExamples);
 
     const offline = entryFromLoadedShard(word);
-    if (offline) return mergeExamplesIntoEntry(offline, cachedExamples);
-
-    const cached = publicCache.get(word) || readPersistentFastCache(word);
-    return cached ? mergeExamplesIntoEntry(cached, cachedExamples) : null;
+    return offline ? mergeExamplesIntoEntry(offline, cachedExamples) : null;
   },
 
   async lookupOffline(rawWord: string): Promise<DictionaryEntry | null> {
     const rawNormalized = normalizeWord(rawWord);
     if (!rawNormalized) return null;
     const word = resolveToeicQuery(rawNormalized);
+    const cachedExamples = readPersistentExampleCache(word);
 
-    const instant = this.lookupInstant(word);
-    if (instant) return instant;
+    const toeic = TOEIC_CORE_ENTRIES[word];
+    if (toeic) return mergeExamplesIntoEntry(toeic, cachedExamples);
+
+    const demo = DEMO_DICTIONARY_ENTRIES[word];
+    if (demo) return mergeExamplesIntoEntry(demo, cachedExamples);
+
+    const core = CORE_LEXICON[word];
+    if (core) return mergeExamplesIntoEntry(coreToEntry(word, core), cachedExamples);
+
+    const loaded = entryFromLoadedShard(word);
+    if (loaded) return mergeExamplesIntoEntry(loaded, cachedExamples);
 
     const shard = await loadShard(shardKey(word));
     let baseWord = word;
