@@ -95,7 +95,7 @@ function getOfflineHeadwords(): string[] {
   if (!offlineHeadwords) {
     offlineHeadwords = Object.keys(OFFLINE_DICTIONARY_10000)
       .filter(isSingleEnglishWord)
-      .sort((a, b) => a.localeCompare(b));
+      .sort();
   }
   return offlineHeadwords;
 }
