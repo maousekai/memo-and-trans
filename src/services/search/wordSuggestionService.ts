@@ -396,6 +396,58 @@ class WordSuggestionService {
       .slice(0, limit);
   }
 
+  async suggestCorrectionsAsync(
+    inputRaw: string,
+    savedWords: SavedWord[] = [],
+    limit = 5,
+  ): Promise<WordSuggestion[]> {
+    const input = normalizeWord(inputRaw);
+    if (!/^[a-z][a-z'-]{1,48}$/.test(input)) return [];
+
+    const results = new Map<string, WordSuggestion>();
+    const push = (item: WordSuggestion) => {
+      if (item.word === input) return;
+      const old = results.get(item.word);
+      if (!old || item.score > old.score) results.set(item.word, item);
+    };
+
+    const offline = await localDictionaryService.suggestSpellingAsync(
+      input,
+      Math.max(limit * 2, 8),
+    );
+    offline.forEach((item) => {
+      push({
+        word: item.word,
+        score: item.score,
+        source: "spelling",
+        reason: "edit-distance",
+        editDistance: item.editDistance,
+      });
+    });
+
+    const personalCandidates = this.candidates(savedWords);
+    (COMMON_CORRECTIONS[input] || []).forEach((word, index) => {
+      const meta = personalCandidates.get(word);
+      push({
+        word,
+        score: 0.995 - index * 0.01,
+        source: "spelling",
+        reason: "common-typo",
+        editDistance: damerauLevenshtein(input, word),
+        partOfSpeech: meta?.partOfSpeech,
+        vietnameseMeaning: meta?.vietnameseMeaning,
+      });
+    });
+
+    return [...results.values()]
+      .sort(
+        (a, b) => (a.editDistance ?? 99) - (b.editDistance ?? 99)
+          || b.score - a.score
+          || a.word.localeCompare(b.word),
+      )
+      .slice(0, limit);
+  }
+
   shouldAutoPreferSuggestion(inputRaw: string, suggestion?: WordSuggestion): boolean {
     if (!suggestion) return false;
     const input = normalizeWord(inputRaw);

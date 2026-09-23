@@ -15,6 +15,7 @@ export const QuickLookup: React.FC = () => {
   const currentTranslation = useAppStore((s) => s.currentTranslation);
   const queryMode = useAppStore((s) => s.queryMode);
   const isLoading = useAppStore((s) => s.isLoading);
+  const isEnriching = useAppStore((s) => s.isEnriching);
   const translationProgressText = useAppStore((s) => s.translationProgressText);
   const error = useAppStore((s) => s.error);
   const isDemoEntry = useAppStore((s) => s.isDemoEntry);
@@ -23,6 +24,9 @@ export const QuickLookup: React.FC = () => {
   const dictionarySuggestions = useAppStore((s) => s.dictionarySuggestions);
   const isDictionaryMode = queryMode === "dictionary";
   const resolvedLemma = isDictionaryMode ? localDictionaryService.resolveInflection(searchQuery) : null;
+  const hasAnyExample = Boolean(currentEntry?.partsOfSpeech?.some((part) =>
+    part.meanings?.some((meaning) => meaning.examples?.length)
+  ));
   const isSaved = isDictionaryMode ? store.isCurrentWordSaved() : false;
 
   const [copied, setCopied] = useState(false);
@@ -239,6 +243,14 @@ export const QuickLookup: React.FC = () => {
                   </div>
                 </div>
               ))}
+
+              {!hasAnyExample && (
+                <div className="px-2.5 py-2 rounded-lg bg-white/[0.035] border border-white/[0.07] text-[11px] text-slate-400">
+                  {isEnriching
+                    ? "Đang tìm thêm câu ví dụ từ nguồn từ điển công khai…"
+                    : "Chưa có câu ví dụ trong các nguồn hiện tại. Nghĩa từ vẫn dùng được bình thường."}
+                </div>
+              )}
             </div>
 
             <div className="space-y-1 pt-1">

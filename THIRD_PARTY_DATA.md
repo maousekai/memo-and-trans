@@ -1,38 +1,51 @@
 # Third-party dictionary data
 
-LexiGlass bundles the **full validated English–Vietnamese lexicon available from thichhoc-dict at build time**, rather than a small frequency-limited subset. CI refuses to build if fewer than 140,000 validated headwords/phrases are produced. Inflection aliases are bundled alongside the headwords so forms such as past tense, plurals, and irregular forms can resolve to their lemma offline.
+LexiGlass builds its offline dictionary from multiple open data sources instead of relying on an LLM for word existence or spelling.
 
-Bilingual usage examples are supplemented from the Tatoeba English–Vietnamese corpus distributed by ManyThings.
-
-## English–Vietnamese dictionary
+## Primary English–Vietnamese dictionary
 
 - Project: https://github.com/thichhoc-org/thichhoc-dict
 - Data license: Creative Commons Attribution-ShareAlike 4.0 International (CC BY-SA 4.0)
 - Upstream sources documented by thichhoc-dict include WordNet 3.1 (Princeton), CMUdict (Carnegie Mellon University), and Wiktionary.
-- LexiGlass modifies the upstream data by validating/deduplicating headwords, compacting senses, normalizing parts of speech, preserving inflection forms, and generating an offline lemma/inflection lookup index.
-- LexiGlass also builds a runtime spelling index over the bundled headwords and inflection forms. This index is used for prefix completion and fuzzy spelling suggestions without sending the query to an AI model.
+- LexiGlass preserves all validated headwords that fit the supported dictionary character set, including normal dictionary punctuation such as digits, periods, slashes, plus signs and hyphens.
+- Inflection forms are indexed separately so past tense, plurals and irregular forms can resolve to a lemma offline.
 
-The derived dictionary data is distributed under CC BY-SA 4.0. LexiGlass application code retains its own repository license; the share-alike requirement applies to the derived dictionary data.
+thichhoc-dict labels its English–Vietnamese dictionary as beta. Its Vietnamese meanings have broad machine-generated coverage but are not yet fully human-reviewed. LexiGlass therefore keeps English glosses alongside Vietnamese meanings when available.
 
-### Data-quality note
+## Supplemental Vietnamese Wiktionary data
 
-thichhoc-dict currently labels its English–Vietnamese dictionary as beta and documents that its Vietnamese senses have machine-generated coverage but have not yet been fully human-reviewed. LexiGlass therefore keeps the upstream English glosses alongside Vietnamese meanings where available and does not treat an LLM response as authoritative dictionary data.
+LexiGlass also consumes the Vietnamese-language Wiktionary dump through the machine-readable Wiktextract/Kaikki export:
 
-Dictionary lookup in LexiGlass is deterministic:
+- Kaikki / Wiktextract raw data: https://kaikki.org/viwiktionary/rawdata.html
+- Original source: Vietnamese Wiktionary
+- LexiGlass only imports English-language entries from that dump.
+- Imported fields can include Vietnamese glosses, inflected forms, IPA and bilingual examples when present.
+- The Wiktionary/Kaikki data remains subject to the source project's applicable attribution and share-alike licensing terms.
+
+This supplemental source is used to fill gaps in headword and example coverage rather than to overwrite a richer primary entry blindly.
+
+## English–Vietnamese example sentences
+
+LexiGlass embeds bilingual examples from two offline-capable sources:
+
+1. Wiktionary examples that include both the English sentence and a Vietnamese translation.
+2. Tatoeba English–Vietnamese sentence pairs distributed by ManyThings.
+
+Tatoeba / ManyThings details:
+
+- Source: https://www.manythings.org/bilingual/vie/
+- Download used by the build: https://www.manythings.org/anki/vie-eng.zip
+- License stated by ManyThings for the Tatoeba sentence data: Creative Commons Attribution 2.0 France (CC BY 2.0 FR)
+
+The generator deduplicates examples and embeds at most two concise bilingual examples per headword. If an offline entry still has no example, the app may query the public Dictionary API in the background for a conventional English example sentence. This does not block the main dictionary result and does not use an LLM.
+
+## Lookup architecture
+
+Dictionary lookup is deterministic:
 
 1. exact bundled headword,
 2. bundled inflection/lemma alias,
 3. public dictionary source for an exact unknown form,
 4. offline fuzzy spelling suggestions.
 
-AI services are not part of the word-existence/spelling decision path.
-
-## English–Vietnamese example sentences
-
-- Corpus: Tatoeba English–Vietnamese sentence pairs via ManyThings
-- Source: https://www.manythings.org/bilingual/vie/
-- Download used by the build: https://www.manythings.org/anki/vie-eng.zip
-- License stated by ManyThings for the Tatoeba sentence data: Creative Commons Attribution 2.0 France (CC BY 2.0 FR)
-- LexiGlass indexes the corpus locally and embeds at most two matching bilingual sentence pairs for a dictionary headword when suitable examples are available.
-
-These examples are used as learning material and remain attributed to the Tatoeba/ManyThings corpus under its stated license.
+AI services are not part of the word-existence or spelling-decision path.
