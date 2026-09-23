@@ -418,6 +418,22 @@ export const store = {
 
     if (instantEntry) {
       wordSuggestionService.recordSuccessfulSearch(instantEntry.normalizedWord);
+
+      // Missing examples are enrichment only. The dictionary result is already
+      // visible and remains usable even if the network is offline.
+      if (!localDictionaryService.hasExamples(instantEntry)) {
+        updateState({ isEnriching: true });
+        void localDictionaryService.enrichExamples(instantEntry, 1800).then((enriched) => {
+          if (generation !== searchGeneration) return;
+          updateState({
+            currentEntry: enriched,
+            isEnriching: false,
+          });
+        }).catch(() => {
+          if (generation !== searchGeneration) return;
+          updateState({ isEnriching: false });
+        });
+      }
       return;
     }
 
