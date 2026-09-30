@@ -7,7 +7,7 @@ import { GlassBadge } from "../glass/GlassBadge";
 import { GlassSurface } from "../glass/GlassSurface";
 import { useAppStore, store } from "../../store/useAppStore";
 import { Volume2, Sparkles, AlertCircle, Copy, Check, Bookmark, BookmarkCheck, ArrowRight, Languages } from "lucide-react";
-import { speechService } from "../../services/pronunciation/speechService";
+import { DictionaryPronunciation } from "./DictionaryPronunciation";
 import { localDictionaryService } from "../../services/dictionary/localDictionaryService";
 
 export const QuickLookup: React.FC = () => {
@@ -203,23 +203,7 @@ export const QuickLookup: React.FC = () => {
                   {currentEntry.cefr && <GlassBadge variant="cefr" cefrLevel={currentEntry.cefr}>{currentEntry.cefr}</GlassBadge>}
                 </div>
 
-                <div className="flex items-center gap-3 mt-1 text-xs">
-                  {currentEntry.ipa && <span className="font-mono text-[11px] text-slate-300">IPA {currentEntry.ipa}</span>}
-                  {currentEntry.ipaUS && (
-                    <button type="button" onClick={() => speechService.speak(currentEntry.query, "US")} className="group flex items-center gap-1 text-slate-300 hover:text-cyan-300 transition-colors" title="Phát âm Mỹ (US)">
-                      <span className="text-[10px] font-bold px-1 rounded bg-white/[0.08] text-slate-400 group-hover:text-cyan-200">US</span>
-                      <span className="font-mono text-[11px] text-slate-300">{currentEntry.ipaUS}</span>
-                      <Volume2 className="w-3 h-3 opacity-60 group-hover:opacity-100" />
-                    </button>
-                  )}
-                  {currentEntry.ipaUK && (
-                    <button type="button" onClick={() => speechService.speak(currentEntry.query, "UK")} className="group flex items-center gap-1 text-slate-300 hover:text-cyan-300 transition-colors" title="Phát âm Anh (UK)">
-                      <span className="text-[10px] font-bold px-1 rounded bg-white/[0.08] text-slate-400 group-hover:text-cyan-200">UK</span>
-                      <span className="font-mono text-[11px] text-slate-300">{currentEntry.ipaUK}</span>
-                      <Volume2 className="w-3 h-3 opacity-60 group-hover:opacity-100" />
-                    </button>
-                  )}
-                </div>
+                <DictionaryPronunciation entry={currentEntry} />
               </div>
 
               <div className="flex items-center gap-1 pt-0.5">

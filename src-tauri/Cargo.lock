@@ -2573,7 +2573,7 @@ dependencies = [
 
 [[package]]
 name = "lexiglass"
-version = "18.4.1"
+version = "18.4.2"
 dependencies = [
  "base64 0.22.1",
  "keyring",
