@@ -51,25 +51,13 @@ function isScrollbarHit(target: HTMLElement, clientX: number, clientY: number) {
 
 export default function App() {
   const windowMode = useAppStore((s) => s.windowMode);
+  const error = useAppStore((s) => s.error);
   const settings = useAppStore((s) => s.settings);
   const [backgroundTone, setBackgroundTone] = useState<BackgroundTone>("light");
 
   useEffect(() => {
     store.init();
 
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (
-        (e.ctrlKey || e.metaKey) &&
-        e.shiftKey &&
-        (e.key === "d" || e.key === "D")
-      ) {
-        e.preventDefault();
-        store.captureSelectedAndLookup();
-      }
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
   useEffect(() => {
@@ -202,6 +190,11 @@ export default function App() {
         <div className="absolute inset-0 bg-transparent pointer-events-none" />
       )}
 
+      {windowMode === 'study' && error && (
+        <div role="alert" className="absolute top-2 left-4 right-4 z-50 rounded-xl p-3 bg-rose-950 text-rose-100 text-xs">
+          {error}
+        </div>
+      )}
       <div className={nativeHostClass}>
         {windowMode === "bubble" && (
           <div className={desktopBridge.isTauri ? "w-full h-full flex items-center justify-center" : ""}>

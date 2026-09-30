@@ -6,6 +6,8 @@ import { Calendar, Flame, CheckCircle, TrendingUp, Sparkles, Brain, ArrowRight }
 
 export const StudyDashboard: React.FC = () => {
   const savedWords = useAppStore((s) => s.savedWords);
+  useAppStore((s) => s.savedPhrases);
+  const reviewTarget = useAppStore((s) => s.settings.dailyReviewTarget);
   const stats = store.getStats();
 
   // Aggregate weaknesses across all words
@@ -28,6 +30,7 @@ export const StudyDashboard: React.FC = () => {
 
   return (
     <div className="flex flex-col h-full space-y-4 select-text">
+      <p className="text-xs text-slate-300">Đã ôn hôm nay: {stats.reviewedToday}/{reviewTarget} lượt</p>
       {/* Metrics Row */}
       <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
         {/* Words Due Today */}

@@ -100,11 +100,7 @@ export class TauriDesktopBridge implements DesktopBridge {
   }
 
   async setAlwaysOnTop(alwaysOnTop: boolean): Promise<void> {
-    try {
-      await invokeNative("set_always_on_top", { alwaysOnTop });
-    } catch (error) {
-      console.warn("Always-on-top update failed:", error);
-    }
+    await invokeNative("set_always_on_top", { alwaysOnTop });
     await this.fallback.setAlwaysOnTop(alwaysOnTop);
   }
 
@@ -129,8 +125,7 @@ export class TauriDesktopBridge implements DesktopBridge {
       const text = await invokeNative<string>("capture_selected_text");
       return text?.trim() || null;
     } catch (error) {
-      console.warn("Native selected-text capture failed:", error);
-      return null;
+      throw new Error(String(error));
     }
   }
 

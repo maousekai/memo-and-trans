@@ -7,7 +7,7 @@ import { GlassBadge } from "../glass/GlassBadge";
 import { GlassSurface } from "../glass/GlassSurface";
 import { useAppStore, store } from "../../store/useAppStore";
 import { Volume2, Sparkles, AlertCircle, Copy, Check, Bookmark, BookmarkCheck, ArrowRight, Languages } from "lucide-react";
-import { speechService } from "../../services/pronunciation/speechService";
+import { DictionaryPronunciation } from "./DictionaryPronunciation";
 import { localDictionaryService } from "../../services/dictionary/localDictionaryService";
 
 export const QuickLookup: React.FC = () => {
@@ -24,7 +24,7 @@ export const QuickLookup: React.FC = () => {
   const dictionarySuggestions = useAppStore((s) => s.dictionarySuggestions);
   const isDictionaryMode = queryMode === "dictionary";
   const resolvedLemma = isDictionaryMode ? localDictionaryService.resolveInflection(searchQuery) : null;
-  const hasAnyExample = Boolean(currentEntry?.partsOfSpeech?.some((part) =>
+  const hasAnyExample = Boolean(currentEntry?.usageExamples?.length || currentEntry?.partsOfSpeech?.some((part) =>
     part.meanings?.some((meaning) => meaning.examples?.length)
   ));
   const isSaved = isDictionaryMode ? store.isCurrentWordSaved() : false;
@@ -165,9 +165,9 @@ export const QuickLookup: React.FC = () => {
           </div>
         )}
 
-        {!isLoading && !error && !isDictionaryMode && currentTranslation && <TranslationView />}
+        {!isLoading && !isDictionaryMode && currentTranslation && <TranslationView />}
 
-        {!isLoading && !error && isDictionaryMode && currentEntry && (
+        {!isLoading && isDictionaryMode && currentEntry && (
           <div className="space-y-3 animate-in fade-in duration-200">
             {(resolvedLemma || searchQuery.trim().toLowerCase() !== currentEntry.normalizedWord.toLowerCase()) && (
               <div className="px-2.5 py-1.5 rounded-lg bg-cyan-400/[0.06] border border-cyan-300/[0.14] text-[11px] text-cyan-100 flex items-center justify-between gap-2">
@@ -203,22 +203,7 @@ export const QuickLookup: React.FC = () => {
                   {currentEntry.cefr && <GlassBadge variant="cefr" cefrLevel={currentEntry.cefr}>{currentEntry.cefr}</GlassBadge>}
                 </div>
 
-                <div className="flex items-center gap-3 mt-1 text-xs">
-                  {currentEntry.ipaUS && (
-                    <button type="button" onClick={() => speechService.speak(currentEntry.query, "US")} className="group flex items-center gap-1 text-slate-300 hover:text-cyan-300 transition-colors" title="Phát âm Mỹ (US)">
-                      <span className="text-[10px] font-bold px-1 rounded bg-white/[0.08] text-slate-400 group-hover:text-cyan-200">US</span>
-                      <span className="font-mono text-[11px] text-slate-300">{currentEntry.ipaUS}</span>
-                      <Volume2 className="w-3 h-3 opacity-60 group-hover:opacity-100" />
-                    </button>
-                  )}
-                  {currentEntry.ipaUK && (
-                    <button type="button" onClick={() => speechService.speak(currentEntry.query, "UK")} className="group flex items-center gap-1 text-slate-300 hover:text-cyan-300 transition-colors" title="Phát âm Anh (UK)">
-                      <span className="text-[10px] font-bold px-1 rounded bg-white/[0.08] text-slate-400 group-hover:text-cyan-200">UK</span>
-                      <span className="font-mono text-[11px] text-slate-300">{currentEntry.ipaUK}</span>
-                      <Volume2 className="w-3 h-3 opacity-60 group-hover:opacity-100" />
-                    </button>
-                  )}
-                </div>
+                <DictionaryPronunciation entry={currentEntry} />
               </div>
 
               <div className="flex items-center gap-1 pt-0.5">
@@ -231,6 +216,11 @@ export const QuickLookup: React.FC = () => {
               </div>
             </div>
 
+            {currentEntry.provenance === 'imported' && (
+              <p className="text-[11px] text-amber-200/90">
+                Nghĩa nhập từ nguồn tổng hợp, chưa được kiểm chứng từng mục. Các định nghĩa tiếng Anh bên dưới chưa được ghép với từng nghĩa Việt.
+              </p>
+            )}
             <div className="space-y-2.5">
               {currentEntry.partsOfSpeech.map((pos, pIdx) => (
                 <div key={pIdx} className="space-y-1">
@@ -240,15 +230,34 @@ export const QuickLookup: React.FC = () => {
                   </div>
                   <div className="space-y-1">
                     {pos.meanings.map((meaning, mIdx) => <MeaningCard key={mIdx} meaning={meaning} index={mIdx} />)}
+                    {!!pos.unpairedEnglishDefinitions?.length && (
+                      <details className="text-xs text-slate-300 py-2">
+                        <summary>Định nghĩa tiếng Anh tham khảo</summary>
+                        <ul className="list-disc pl-4 space-y-1 mt-2">
+                          {pos.unpairedEnglishDefinitions.map((definition, i) => <li key={i}>{definition}</li>)}
+                        </ul>
+                      </details>
+                    )}
                   </div>
                 </div>
               ))}
 
+              {!!currentEntry.usageExamples?.length && (
+                <div className="space-y-2 text-xs">
+                  <p className="text-slate-400">Ví dụ chứa từ · chưa đối chiếu theo từng nghĩa</p>
+                  {currentEntry.usageExamples.map((example, i) => (
+                    <div key={i} className="rounded-lg border border-white/10 p-2">
+                      <p className="text-slate-200">{example.english}</p>
+                      <p className="text-slate-400 mt-1">{example.vietnamese}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
               {!hasAnyExample && (
                 <div className="px-2.5 py-2 rounded-lg bg-white/[0.035] border border-white/[0.07] text-[11px] text-slate-400">
                   {isEnriching
                     ? "Đang tìm thêm câu ví dụ từ nguồn từ điển công khai…"
-                    : "Chưa có câu ví dụ trong các nguồn hiện tại. Nghĩa từ vẫn dùng được bình thường."}
+                    : "Chưa có câu ví dụ trong các nguồn hiện tại."}
                 </div>
               )}
             </div>

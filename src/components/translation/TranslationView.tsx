@@ -18,6 +18,8 @@ import { store, useAppStore } from "../../store/useAppStore";
 
 export const TranslationView: React.FC = () => {
   const result = useAppStore((s) => s.currentTranslation);
+  const segments = useAppStore((s) => s.translatedSegments);
+  const input = useAppStore((s) => s.translationInput);
   const queryMode = useAppStore((s) => s.queryMode);
   const isAnalyzing = useAppStore((s) => s.isAnalyzingTranslation);
   const savedPhrases = useAppStore((s) => s.savedPhrases);
@@ -26,11 +28,12 @@ export const TranslationView: React.FC = () => {
 
   if (!result) return null;
 
-  const normalizedSource = result.sourceText.trim().toLowerCase().replace(/\s+/g, " ");
+  const complete = segments.length === result.segmentCount;
+  const normalizedSource = (complete ? input : result.sourceText).trim().toLowerCase().replace(/\s+/g, " ");
   const alreadySaved = savedPhrases.some((item) => item.normalizedSource === normalizedSource);
 
   const copyTranslation = async () => {
-    await navigator.clipboard.writeText(result.translatedText);
+    await navigator.clipboard.writeText(complete ? segments.map((item) => item.translatedText).join('\n\n') : result.translatedText);
     setCopied(true);
     window.setTimeout(() => setCopied(false), 1400);
   };
@@ -55,6 +58,7 @@ export const TranslationView: React.FC = () => {
           <span>Dịch Anh → Việt · {modeLabel}</span>
         </div>
         <span className="normal-case tracking-normal text-slate-500">
+          {result.fromCache ? "Đã lưu · " : ""}
           {result.source === "local" ? "Offline" : result.source === "cache" ? "Cache" : result.source === "gemini" ? "Gemini" : "NVIDIA Riva"}
           {result.latencyMs > 0 ? ` · ${result.latencyMs}ms` : ""}
         </span>
@@ -89,7 +93,7 @@ export const TranslationView: React.FC = () => {
             className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] text-slate-300 border border-white/10 bg-white/[0.045] hover:bg-white/[0.08]"
           >
             {copied ? <Check className="w-3.5 h-3.5 text-emerald-300" /> : <Copy className="w-3.5 h-3.5" />}
-            {copied ? "Đã sao chép" : "Sao chép"}
+            {copied ? "Đã sao chép" : complete && segments.length > 1 ? "Sao chép toàn bộ" : "Sao chép"}
           </button>
           <button
             type="button"
@@ -101,11 +105,27 @@ export const TranslationView: React.FC = () => {
             }`}
           >
             {alreadySaved || savedPulse ? <BookmarkCheck className="w-3.5 h-3.5 text-cyan-200" /> : <Bookmark className="w-3.5 h-3.5" />}
-            {alreadySaved || savedPulse ? "Đã lưu vào Sổ học" : "Lưu cụm/câu"}
+            {alreadySaved || savedPulse ? "Đã lưu vào Sổ học" : result.isPartial ? (complete ? "Lưu toàn bộ đoạn" : "Lưu phần này") : "Lưu cụm/câu"}
           </button>
         </div>
       </div>
 
+      <button type="button" className="text-xs text-cyan-200 underline"
+        onClick={() => store.translateText(input || result.sourceText, queryMode, (result.segmentIndex || 1) - 1, true)}>
+        Dịch lại phần này
+      </button>
+      {segments.length > 1 && (
+        <div className="space-y-2 text-xs">
+          <p className="text-slate-400">Các phần đã dịch</p>
+          {segments.map((segment) => (
+            <button type="button" key={segment.segmentIndex}
+              onClick={() => store.showTranslationSegment(segment.segmentIndex || 1)}
+              className="block w-full text-left p-2 rounded-lg border border-white/10">
+              <span className="text-cyan-200">Phần {segment.segmentIndex}: </span>{segment.translatedText}
+            </button>
+          ))}
+        </div>
+      )}
       {result.alternativeTranslations.length > 0 && (
         <div className="space-y-1.5">
           <p className="text-[10px] uppercase tracking-[0.12em] text-slate-500">Cách dịch khác</p>
@@ -165,10 +185,10 @@ export const TranslationView: React.FC = () => {
         </div>
       )}
 
-      {result.analysisStatus === "failed" && result.localStrategy === "composed" && (
+      {result.analysisStatus === "failed" && (
         <div className="flex items-center gap-2 rounded-xl border border-amber-300/[0.14] bg-amber-300/[0.035] px-3 py-2 text-[11px] text-amber-100/75">
           <CloudOff className="w-3.5 h-3.5 shrink-0" />
-          <span>AI cloud tạm thời không phản hồi · bản dịch offline vẫn dùng được.</span>
+          <span>Chưa tải được phần giải thích. Bạn có thể thử dịch lại.</span>
         </div>
       )}
 

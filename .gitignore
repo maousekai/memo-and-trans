@@ -2,6 +2,8 @@ node_modules/
 build/
 dist/
 coverage/
+src-tauri/target/
+public/dictionary/
 .DS_Store
 *.log
 .env*

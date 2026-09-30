@@ -1,3 +1,4 @@
+import { DICTIONARY_CORRECTIONS } from "../../data/dictionaryCorrections";
 import type { DictionaryEntry, Example, PartOfSpeech } from "../../types/dictionary";
 import { DEMO_DICTIONARY_ENTRIES } from "../../data/demoEntries";
 import { TOEIC_CORE_ENTRIES, TOEIC_QUERY_ALIASES } from "../../data/toeicCoreEntries";
@@ -26,7 +27,7 @@ interface OfflinePackedPart {
   x?: Array<[string, string]>;
 }
 
-const FAST_CACHE_PREFIX = "lexiglass_fast_dict_cache_";
+const FAST_CACHE_PREFIX = "lexiglass_fast_dict_cache_v2_";
 const FAST_CACHE_MAX_AGE_MS = 1000 * 60 * 60 * 24 * 30;
 const EXAMPLE_CACHE_PREFIX = "lexiglass_dict_examples_v1_";
 const EXAMPLE_CACHE_MAX_AGE_MS = 1000 * 60 * 60 * 24 * 90;
@@ -125,6 +126,9 @@ async function loadShard(key: string): Promise<OfflineShard> {
       });
       if (!response.ok) return { entries: {}, aliases: {}, ranks: {} };
       const payload = await response.json() as OfflineShard;
+      if (!payload?.entries || typeof payload.entries !== 'object' || Array.isArray(payload.entries)) {
+        return { entries: {}, aliases: {}, ranks: {} };
+      }
       const normalized: OfflineShard = {
         entries: payload?.entries || {},
         aliases: payload?.aliases || {},
@@ -134,7 +138,6 @@ async function loadShard(key: string): Promise<OfflineShard> {
       return normalized;
     } catch {
       const empty = { entries: {}, aliases: {}, ranks: {} };
-      shardCache.set(key, empty);
       return empty;
     } finally {
       shardPromises.delete(key);
@@ -159,8 +162,7 @@ async function loadAllHeadwords(): Promise<string[]> {
         : [];
       return offlineHeadwords;
     } catch {
-      offlineHeadwords = [];
-      return offlineHeadwords;
+      return [];
     } finally {
       headwordPromise = null;
     }
@@ -286,7 +288,7 @@ function writePersistentFastCache(word: string, entry: DictionaryEntry): void {
 }
 
 function entryHasExamples(entry: DictionaryEntry | null | undefined): boolean {
-  return Boolean(entry?.partsOfSpeech?.some((part) =>
+  return Boolean(entry?.usageExamples?.length || entry?.partsOfSpeech?.some((part) =>
     part.meanings?.some((meaning) => Array.isArray(meaning.examples) && meaning.examples.length > 0)
   ));
 }
@@ -323,15 +325,8 @@ function writePersistentExampleCache(word: string, examples: Example[]): void {
 
 function mergeExamplesIntoEntry(entry: DictionaryEntry, examples: Example[]): DictionaryEntry {
   if (!examples.length || entryHasExamples(entry)) return entry;
-  const partsOfSpeech = entry.partsOfSpeech.map((part, partIndex) => ({
-    ...part,
-    meanings: part.meanings.map((meaning, meaningIndex) => (
-      partIndex === 0 && meaningIndex === 0
-        ? { ...meaning, examples: examples.slice(0, 2) }
-        : meaning
-    )),
-  }));
-  return { ...entry, partsOfSpeech };
+  // Word-level examples have no sense alignment; never attach them to meaning #1.
+  return { ...entry, usageExamples: examples.slice(0, 4) };
 }
 
 function extractPublicExamples(payload: any): Example[] {
@@ -383,36 +378,48 @@ function coreToEntry(word: string, core: CoreWord): DictionaryEntry {
 function packedToEntry(baseWord: string, packed: OfflinePackedPart[] | undefined): DictionaryEntry | null {
   if (!packed?.length) return null;
 
-  const partsOfSpeech: PartOfSpeech[] = packed.map((part, partIndex) => {
-    const senseCount = Math.max(part.v?.length || 0, part.e?.length || 0, 1);
-    return {
-      type: normalizePos(part.p),
-      forms: Array.isArray(part.f) ? part.f : [],
-      meanings: Array.from({ length: Math.min(4, senseCount) }, (_, index) => ({
-        vietnamese: part.v?.[index] || part.v?.[0] || "",
-        englishDefinition: part.e?.[index] || part.e?.[0] || "",
-        register: null,
-        context: null,
-        examples: partIndex === 0 && index === 0 && Array.isArray(part.x)
-          ? part.x.slice(0, 2).map(([english, vietnamese]) => ({ english, vietnamese }))
-          : [],
-        collocations: [],
-      })).filter((meaning) => meaning.vietnamese || meaning.englishDefinition),
-    };
-  }).filter((part) => part.meanings.length > 0);
+  const groups = new Map<string, PartOfSpeech>();
+  for (const part of packed) {
+    const type = normalizePos(part.p);
+    const group = groups.get(type) || { type, forms: [], meanings: [], unpairedEnglishDefinitions: [] };
+    group.forms = [...new Set([...group.forms, ...(part.f || [])])];
+    for (const vietnamese of part.v || []) {
+      if (!vietnamese || group.meanings.some((m) => m.vietnamese === vietnamese)) continue;
+      group.meanings.push({
+        vietnamese, englishDefinition: "", register: null, context: null,
+        examples: [], collocations: [],
+      });
+    }
+    // These arrays came from independent sources. Position is not a sense ID.
+    group.unpairedEnglishDefinitions = [...new Set([
+      ...(group.unpairedEnglishDefinitions || []), ...(part.e || []),
+    ])];
+    if (group.meanings.length || group.unpairedEnglishDefinitions.length) groups.set(type, group);
+  }
+  const partsOfSpeech = [...groups.values()];
+  const usageExamples: Example[] = [];
+  for (const part of packed) {
+    for (const [english, vietnamese] of part.x || []) {
+      if (!usageExamples.some((ex) => ex.english === english)) usageExamples.push({ english, vietnamese });
+    }
+  }
 
   if (!partsOfSpeech.length) return null;
   const ipa = packed.find((part) => part.i)?.i || null;
 
   return {
     query: baseWord,
+    dataVersion: 2,
+    provenance: 'imported',
+    usageExamples,
+    ipa,
     normalizedWord: baseWord,
     language: "en",
-    ipaUS: ipa,
-    ipaUK: ipa,
+    ipaUS: null,
+    ipaUK: null,
     syllables: null,
     cefr: null,
-    frequency: "common",
+    frequency: null,
     partsOfSpeech,
     synonyms: [],
     antonyms: [],
@@ -497,7 +504,7 @@ function mapPublicEntry(word: string, raw: any): DictionaryEntry | null {
     type: String(meaning?.partOfSpeech || "general"),
     forms: [],
     meanings: (Array.isArray(meaning?.definitions) ? meaning.definitions : []).slice(0, 2).map((definition: any) => ({
-      vietnamese: "Đang bổ sung nghĩa tiếng Việt…",
+      vietnamese: "",
       englishDefinition: String(definition?.definition || ""),
       register: null,
       context: null,
@@ -512,8 +519,11 @@ function mapPublicEntry(word: string, raw: any): DictionaryEntry | null {
     query: word,
     normalizedWord: word,
     language: "en",
-    ipaUS: phonetic,
-    ipaUK: phonetic,
+    provenance: 'public',
+    dataVersion: 2,
+    ipa: phonetic,
+    ipaUS: null,
+    ipaUK: null,
     syllables: null,
     cefr: null,
     frequency: null,
@@ -527,16 +537,18 @@ function mapPublicEntry(word: string, raw: any): DictionaryEntry | null {
   };
 }
 
-async function fetchWithTimeout(url: string, timeoutMs: number): Promise<Response> {
+async function fetchJsonWithTimeout(url: string, timeoutMs: number): Promise<unknown> {
   const controller = new AbortController();
   const timer = window.setTimeout(() => controller.abort(), timeoutMs);
   try {
-    return await fetch(url, {
+    const response = await fetch(url, {
       method: "GET",
       headers: { Accept: "application/json" },
       signal: controller.signal,
       cache: "force-cache",
     });
+    if (!response.ok) throw new Error(`Dictionary request failed (${response.status})`);
+    return await response.json();
   } finally {
     window.clearTimeout(timer);
   }
@@ -552,6 +564,7 @@ export const localDictionaryService = {
     if (!rawNormalized) return null;
     const word = resolveToeicQuery(rawNormalized);
     const cachedExamples = readPersistentExampleCache(word);
+    if (DICTIONARY_CORRECTIONS[word]) return DICTIONARY_CORRECTIONS[word];
 
     const toeic = TOEIC_CORE_ENTRIES[word];
     if (toeic) return mergeExamplesIntoEntry(toeic, cachedExamples);
@@ -571,6 +584,7 @@ export const localDictionaryService = {
     if (!rawNormalized) return null;
     const word = resolveToeicQuery(rawNormalized);
     const cachedExamples = readPersistentExampleCache(word);
+    if (DICTIONARY_CORRECTIONS[word]) return DICTIONARY_CORRECTIONS[word];
 
     const toeic = TOEIC_CORE_ENTRIES[word];
     if (toeic) return mergeExamplesIntoEntry(toeic, cachedExamples);
@@ -692,12 +706,10 @@ export const localDictionaryService = {
 
     const task = (async () => {
       try {
-        const response = await fetchWithTimeout(
+        const payload = await fetchJsonWithTimeout(
           `https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(word)}`,
           timeoutMs,
         );
-        if (!response.ok) return null;
-        const payload = await response.json();
         const entry = Array.isArray(payload) ? mapPublicEntry(word, payload[0]) : null;
         if (entry) writePersistentFastCache(word, entry);
         return entry;
@@ -722,15 +734,14 @@ export const localDictionaryService = {
     if (!word || word.includes(" ")) return entry;
 
     const cachedExamples = readPersistentExampleCache(word);
+    if (DICTIONARY_CORRECTIONS[word]) return DICTIONARY_CORRECTIONS[word];
     if (cachedExamples.length) return mergeExamplesIntoEntry(entry, cachedExamples);
 
     try {
-      const response = await fetchWithTimeout(
+      const payload = await fetchJsonWithTimeout(
         `https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(word)}`,
         timeoutMs,
       );
-      if (!response.ok) return entry;
-      const payload = await response.json();
       const examples = extractPublicExamples(payload);
       if (!examples.length) return entry;
       writePersistentExampleCache(word, examples);

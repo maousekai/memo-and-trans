@@ -1,13 +1,7 @@
 import type { QueryMode } from "../../types/translation";
-import { TOEIC_QUERY_ALIASES } from "../../data/toeicCoreEntries";
-import { localDictionaryService } from "../dictionary/localDictionaryService";
 
 function normalizeInput(value: string): string {
   return value.trim().replace(/\s+/g, " ");
-}
-
-function normalizeSemanticAliasKey(value: string): string {
-  return value.trim().toLowerCase().replace(/^[^a-z]+|[^a-z'-]+$/g, "").replace(/\s+/g, " ");
 }
 
 function lexicalTokens(value: string): string[] {
@@ -46,15 +40,9 @@ export function classifyInput(rawInput: string): QueryMode {
   if (!input) return "dictionary";
 
   const tokens = lexicalTokens(input);
-  const semanticAlias = TOEIC_QUERY_ALIASES[normalizeSemanticAliasKey(input)];
 
-  // Real dictionary headwords/inflections win, but semantic clue aliases such as
-  // "profession or job" intentionally remain Translation Mode so the translation
-  // is the primary answer and reverse-dictionary suggestions are secondary.
-  if (!semanticAlias && localDictionaryService.lookupInstant(input.toLowerCase())) {
-    return "dictionary";
-  }
-
+  // Classification must not depend on which dictionary shards happen to be loaded.
+  // Multiword input uses translation; individual words use the dictionary.
   if (tokens.length <= 1) return "dictionary";
 
   if (hasMultipleSentences(input) || input.includes("\n")) {

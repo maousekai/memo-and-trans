@@ -247,8 +247,9 @@ export function selectSmartPhraseCardType(phrase: SavedPhrase): CardType {
 export function generateFlashcards(word: SavedWord): GeneratedFlashcard[] {
   const cards: GeneratedFlashcard[] = [];
   const dictionary = word.dictionary;
-  const primaryPos = dictionary.partsOfSpeech[0];
-  const primaryMeaning = primaryPos?.meanings[0];
+  const primaryPos = dictionary.partsOfSpeech.find((part) => part.meanings.some((meaning) => meaning.vietnamese.trim()));
+  const primaryMeaning = primaryPos?.meanings.find((meaning) => meaning.vietnamese.trim());
+  if (!primaryMeaning) return cards;
   const vietnamese = primaryMeaning?.vietnamese || "Không có nghĩa";
   const firstExample = primaryMeaning?.examples[0];
   const stage = word.learningStage ?? 0;
@@ -317,9 +318,12 @@ export function generateFlashcards(word: SavedWord): GeneratedFlashcard[] {
   });
 
   if (firstExample?.english) {
-    const escaped = word.word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const regex = new RegExp(`\\b${escaped}(?:s|es|ed|ing)?\\b`, "i");
-    if (regex.test(firstExample.english)) {
+    const forms = [word.word, ...(primaryPos?.forms || [])]
+      .filter(Boolean).sort((a, b) => b.length - a.length)
+      .map((form) => form.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+    const regex = new RegExp("\\b(?:" + forms.join("|") + ")\\b", "i");
+    const match = firstExample.english.match(regex);
+    if (match) {
       cards.push({
         id: `${word.id}-cloze`,
         wordId: word.id,
@@ -329,7 +333,7 @@ export function generateFlashcards(word: SavedWord): GeneratedFlashcard[] {
         learningStage: 3,
         prompt: firstExample.english.replace(regex, "________"),
         promptSecondary: firstExample.vietnamese,
-        expectedAnswer: word.word,
+        expectedAnswer: match[0],
         contextSentence: firstExample.english,
         vietnameseMeaning: vietnamese,
       });

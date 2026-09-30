@@ -128,4 +128,5 @@ export interface StudyDashboardStats {
   retentionRate: number; // percentage e.g. 92
   currentStreak: number; // days
   totalReviewedCount: number;
+  reviewedToday: number;
 }

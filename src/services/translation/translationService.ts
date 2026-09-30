@@ -6,7 +6,6 @@ import type {
 } from "../../types/translation";
 import { translationCache } from "./translationCache";
 import { localPhraseService } from "./localPhraseService";
-import { localCompositionalPhraseService } from "./localCompositionalPhraseService";
 import { geminiTranslationProvider } from "./geminiProvider";
 import { nvidiaTranslationProvider } from "./nvidiaTranslationProvider";
 import type { TranslationProvider } from "./providerTypes";
@@ -17,19 +16,19 @@ export interface TranslateOptions {
   offlineOnly?: boolean;
   providerPreference?: TranslationProviderPreference;
   segmentIndex?: number;
+  forceRefresh?: boolean;
 }
 
 const MAX_SEGMENT_CHARS = 1500;
 
-// v18.2 uses task-specific cloud routing. Riva Translate gets the primary
-// translation window; Gemini/Nemotron remain available for fallback/enrichment.
-const CLOUD_HARD_LIMIT_MS = 8000;
-const RIVA_PRIMARY_LIMIT_MS = 5000;
-const GEMINI_PRIMARY_LIMIT_MS = 3000;
-const FALLBACK_LIMIT_MS = 2800;
-const STATUS_TIMEOUT_MS = 500;
+// Give the translation provider and its fallback separate bounded request windows.
+const CLOUD_HARD_LIMIT_MS = 18000;
+const RIVA_PRIMARY_LIMIT_MS = 10000;
+const GEMINI_PRIMARY_LIMIT_MS = 10000;
+const FALLBACK_LIMIT_MS = 7000;
+const STATUS_TIMEOUT_MS = 1000;
 const PROVIDER_STATUS_TTL_MS = 1000 * 60 * 10;
-const ANALYSIS_PROVIDER_BUDGET_MS = 4500;
+const ANALYSIS_PROVIDER_BUDGET_MS = 10000;
 
 type CachedProviderStatus = {
   status: TranslationProviderStatus;
@@ -40,14 +39,14 @@ const providerStatusCache = new Map<TranslationProvider["id"], CachedProviderSta
 
 function withDeadline<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
-    const timer = window.setTimeout(() => reject(new Error(message)), timeoutMs);
+    const timer = globalThis.setTimeout(() => reject(new Error(message)), timeoutMs);
     promise.then(
       (value) => {
-        window.clearTimeout(timer);
+        globalThis.clearTimeout(timer);
         resolve(value);
       },
       (error) => {
-        window.clearTimeout(timer);
+        globalThis.clearTimeout(timer);
         reject(error);
       },
     );
@@ -134,7 +133,7 @@ async function getCachedProviderStatus(
 ): Promise<TranslationProviderStatus> {
   const now = Date.now();
   const cached = providerStatusCache.get(provider.id);
-  if (!forceRefresh && cached && cached.expiresAt > now) return cached.status;
+  if (!forceRefresh && cached?.status.configured && cached.expiresAt > now) return cached.status;
 
   try {
     const status = await withDeadline(
@@ -174,7 +173,8 @@ class TranslationService {
     const displaySegmentIndex = requestedSegmentIndex + 1;
 
     // 1) Cache is always the fastest path.
-    const cached = translationCache.read(segment);
+    const cacheScope = `${options.offlineOnly ? 'offline' : 'online'}:${options.providerPreference || 'auto'}`;
+    const cached = options.forceRefresh ? null : translationCache.read(segment, cacheScope);
     if (cached) {
       return {
         ...cached,
@@ -187,7 +187,7 @@ class TranslationService {
     }
 
     // 2) Deterministic exact phrases remain the safest offline answer.
-    const exactLocal = localPhraseService.lookup(segment);
+    const exactLocal = /\b[A-Z]{2,}\b/.test(segment) ? null : localPhraseService.lookup(segment);
     if (exactLocal && (exactLocal.confidence || 0) >= 0.95) {
       const result: TranslationResult = {
         ...exactLocal,
@@ -195,35 +195,22 @@ class TranslationService {
         segmentIndex: displaySegmentIndex,
         segmentCount: segments.length,
       };
-      translationCache.write(segment, result);
+      translationCache.write(segment, result, cacheScope);
       return result;
     }
 
-    // 3) Short TOEIC-style chunks are composed locally from grammar patterns +
-    // offline dictionary data. They render immediately; cloud analysis is optional
-    // enrichment and never blocks this result.
-    const composedLocal = localCompositionalPhraseService.lookup(segment);
-    if (composedLocal && (composedLocal.confidence || 0) >= 0.88) {
-      const result: TranslationResult = {
-        ...composedLocal,
-        isPartial: segments.length > 1,
-        segmentIndex: displaySegmentIndex,
-        segmentCount: segments.length,
-      };
-      translationCache.write(segment, result);
-      return result;
-    }
-
+    // General sentences require a translation provider. Word-by-word composition
+    // is not evidence of a correct translation, even when all words are known.
     if (options.offlineOnly) {
       throw new Error("Không có bản dịch offline đủ tin cậy. Hãy tắt chế độ Chỉ dùng offline để sử dụng dịch cloud.");
     }
 
-    // 4) Cloud-only cases get a real fallback window instead of forcing both
-    // providers into one 4.5 second slot.
+    // Keep a bounded fallback window when the preferred provider fails.
     const providers = translationProviderOrder(options.providerPreference || "auto");
     const startedAt = performance.now();
     const deadlineAt = startedAt + CLOUD_HARD_LIMIT_MS;
     let lastError: unknown = null;
+    const attempted: string[] = [];
 
     for (let index = 0; index < providers.length; index += 1) {
       const provider = providers[index];
@@ -246,6 +233,7 @@ class TranslationService {
         const translateBudget = Math.min(providerCap, remainingAfterStatus);
         if (translateBudget < 500) break;
 
+        attempted.push(status.provider);
         const fast = await withDeadline(
           provider.translate(segment, { timeoutMs: translateBudget }),
           translateBudget,
@@ -259,7 +247,7 @@ class TranslationService {
           segmentIndex: displaySegmentIndex,
           segmentCount: segments.length,
         });
-        translationCache.write(segment, result);
+        translationCache.write(segment, result, cacheScope);
         return result;
       } catch (error) {
         lastError = error;
@@ -268,7 +256,7 @@ class TranslationService {
 
     const detail = String((lastError as any)?.message || lastError || "").trim();
     throw new Error(
-      `AI cloud tạm thời không phản hồi sau khi đã thử nguồn chính và dự phòng trong tối đa ${CLOUD_HARD_LIMIT_MS / 1000}s.${detail ? ` (${detail})` : ""}`,
+      `${attempted.length ? `Chưa dịch được qua ${attempted.join(' và ')}. Hãy thử lại.` : 'Chưa có dịch vụ dịch sẵn sàng. Hãy kiểm tra API key trong Cài đặt.'}${detail ? ` (${detail})` : ""}`,
     );
   }
 

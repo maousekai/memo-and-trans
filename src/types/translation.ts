@@ -36,6 +36,7 @@ export interface FastTranslation {
   localStrategy?: "exact" | "composed";
   confidence?: number;
   latencyMs: number;
+  fromCache?: boolean;
   isPartial?: boolean;
   segmentIndex?: number;
   segmentCount?: number;

@@ -22,6 +22,7 @@ export interface PartOfSpeech {
   type: string;
   forms: string[];
   meanings: Meaning[];
+  unpairedEnglishDefinitions?: string[];
 }
 
 export interface WordFamilyItem {
@@ -38,6 +39,10 @@ export interface CommonMistake {
 
 export interface DictionaryEntry {
   query: string;
+  dataVersion?: number;
+  provenance?: 'curated' | 'imported' | 'public';
+  usageExamples?: Example[];
+  ipa?: string | null;
   normalizedWord: string;
   language: string;
   ipaUS: string | null;

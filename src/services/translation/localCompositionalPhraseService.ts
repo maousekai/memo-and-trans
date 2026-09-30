@@ -2,8 +2,6 @@ import type {
   TranslationChunk,
   TranslationResult,
 } from "../../types/translation";
-import type { DictionaryEntry } from "../../types/dictionary";
-import { localDictionaryService } from "../dictionary/localDictionaryService";
 
 interface WordInfo {
   source: string;
@@ -97,6 +95,7 @@ const TOKEN_TRANSLATIONS: Record<string, string> = {
   boxes: "các hộp",
   bag: "túi",
   bags: "các túi",
+  work: "việc làm",
   package: "gói hàng",
   packages: "các gói hàng",
 };
@@ -156,7 +155,7 @@ const NOUN_OVERRIDE_TOKENS = new Set([
   "package", "packages",
 ]);
 
-const BE_FORMS = new Set(["am", "is", "are", "was", "were", "be", "been"]);
+const BE_FORMS = new Set(["am", "is", "are"]);
 const PREPOSITION_STARTERS = new Set([
   "outside", "inside", "near", "beside", "behind", "under", "underneath",
   "above", "over", "on", "at", "in", "from", "with", "without", "around",
@@ -173,32 +172,7 @@ function normalize(value: string): string {
 }
 
 function lexicalTokens(value: string): string[] {
-  return normalize(value).match(/[a-z]+(?:-[a-z]+)*/g) || [];
-}
-
-function cleanMeaning(value: string): string {
-  return String(value || "")
-    .split(/[;；]/)[0]
-    .replace(/\([^)]*\)/g, "")
-    .trim();
-}
-
-function meaningFromEntry(entry: DictionaryEntry, preferredPos?: string): WordInfo | null {
-  const parts = entry.partsOfSpeech || [];
-  const preferred = preferredPos
-    ? parts.find((part) => String(part.type || "").toLowerCase().includes(preferredPos))
-    : null;
-  if (preferredPos && !preferred) return null;
-  const part = preferred || parts[0];
-  const meaning = part?.meanings?.find((item) => cleanMeaning(item.vietnamese));
-  if (!part || !meaning) return null;
-
-  return {
-    source: entry.query,
-    lemma: (entry.normalizedWord || entry.query || "").toLowerCase(),
-    vi: cleanMeaning(meaning.vietnamese),
-    pos: String(part.type || "general").toLowerCase(),
-  };
+  return normalize(value).match(/[a-z]+(?:-[a-z]+)*|\d+/g) || [];
 }
 
 function lookupWord(word: string, preferredPos?: string): WordInfo | null {
@@ -212,11 +186,8 @@ function lookupWord(word: string, preferredPos?: string): WordInfo | null {
     };
   }
 
-  const entry = localDictionaryService.lookupInstant(word);
-  if (!entry) return null;
-  const info = meaningFromEntry(entry, preferredPos);
-  if (!info) return null;
-  return { ...info, source: word };
+  if (/^\d+$/.test(word) && !preferredPos) return { source: word, lemma: word, vi: word, pos: 'numeral' };
+  return null;
 }
 
 function verbCandidates(token: string): string[] {
@@ -249,11 +220,7 @@ function lookupVerb(token: string): WordInfo | null {
         pos: "verb",
       };
     }
-    const info = lookupWord(candidate, "verb");
-    if (info) {
-      const preferred = VERB_TRANSLATIONS[info.lemma] || cleanMeaning(info.vi);
-      if (preferred) return { ...info, source: token, vi: preferred };
-    }
+
   }
   return null;
 }
@@ -349,7 +316,7 @@ function isPresentParticiple(token: string): boolean {
 }
 
 function isPastParticiple(token: string): boolean {
-  return /(ed|en)$/.test(token) || new Set([
+  return /ed$/.test(token) || new Set([
     "held", "built", "put", "set", "left", "made", "driven", "written", "read",
   ]).has(token);
 }
@@ -408,6 +375,7 @@ function buildResult(
 
 export function lookupCompositionalPhrase(rawText: string): TranslationResult | null {
   const startedAt = performance.now();
+  if (/[^a-z0-9\s,.!?-]/i.test(rawText) || /\d[.,]\d/.test(rawText)) return null;
   const tokens = lexicalTokens(rawText);
   if (tokens.length < 2 || tokens.length > 8) return null;
 
@@ -436,9 +404,12 @@ export function lookupCompositionalPhrase(rawText: string): TranslationResult | 
 
     const predicate = tokens[beIndex + 1];
     if (isPresentParticiple(predicate)) {
-      const verb = lookupVerb(predicate);
-      const tail = translateSequence(tokens.slice(beIndex + 2));
-      if (!verb || !tail) return null;
+      const rawVerb = lookupVerb(predicate);
+      if (!rawVerb) return null;
+      const phrase = normalizeVerbPhrase(rawVerb, tokens.slice(beIndex + 2));
+      const verb = phrase.verb;
+      const tail = translateSequence(phrase.tail);
+      if (!tail) return null;
       return buildResult(
         rawText,
         [subject.text, "đang", verb.vi, tail.text].filter(Boolean).join(" "),

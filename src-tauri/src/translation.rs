@@ -81,7 +81,7 @@ pub async fn query_gemini(
     }
 
     let api_key = get_gemini_key()?;
-    let timeout = timeout_ms.unwrap_or(4500).clamp(500, 4500);
+    let timeout = timeout_ms.unwrap_or(10000).clamp(500, 15000);
     let url = format!(
         "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent",
         model
@@ -94,7 +94,7 @@ pub async fn query_gemini(
         }],
         "generationConfig": {
             "temperature": 0.05,
-            "maxOutputTokens": 900,
+            "maxOutputTokens": 4096,
             "responseMimeType": "application/json",
             "thinkingConfig": {
                 "thinkingLevel": "minimal"
@@ -129,16 +129,20 @@ pub async fn query_gemini(
         .await
         .map_err(|e| format!("Failed to parse Gemini response: {}", e))?;
 
-    let text = payload["candidates"][0]["content"]["parts"][0]["text"]
-        .as_str()
-        .unwrap_or("")
-        .trim();
-
+    let candidate = &payload["candidates"][0];
+    let finish_reason = candidate["finishReason"].as_str().unwrap_or("unknown");
+    if finish_reason != "STOP" {
+        return Err(format!("Gemini did not complete the answer (finish_reason={})", finish_reason));
+    }
+    let text = candidate["content"]["parts"].as_array()
+        .map(|parts| parts.iter()
+            .filter(|part| part["thought"].as_bool() != Some(true))
+            .filter_map(|part| part["text"].as_str())
+            .collect::<Vec<_>>().join(""))
+        .unwrap_or_default();
+    let text = text.trim();
     if text.is_empty() {
-        let finish_reason = payload["candidates"][0]["finishReason"]
-            .as_str()
-            .unwrap_or("unknown");
-        return Err(format!("Gemini returned no final text (finish_reason={})", finish_reason));
+        return Err("Gemini returned no final text".to_string());
     }
 
     Ok(text.to_string())
