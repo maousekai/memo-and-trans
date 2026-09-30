@@ -9,6 +9,7 @@ import { invokeNative, isTauriRuntime } from "../desktop/tauriInvoke";
 class SpeechService {
   private voices: SpeechSynthesisVoice[] = [];
   private voicesLoaded = false;
+  private generation = 0;
   private provider: SpeechProvider = "nvidia-magpie";
   private voice: string = NVIDIA_TTS.DEFAULT_VOICE;
   private rate = 0.92;
@@ -39,6 +40,7 @@ class SpeechService {
   }
 
   public cancel() {
+    this.generation += 1;
     if (typeof window !== "undefined" && "speechSynthesis" in window) {
       window.speechSynthesis.cancel();
     }
@@ -58,6 +60,7 @@ class SpeechService {
     if (!cleanText) return;
 
     this.cancel();
+    const generation = this.generation;
 
     // NVIDIA Magpie hosted TTS currently exposes en-US voices. Keep UK mode
     // accurate by using the OS/browser English-UK voice instead of pretending
@@ -70,6 +73,7 @@ class SpeechService {
           voice: this.voice,
           sampleRateHz: 44100,
         });
+        if (generation !== this.generation) return;
         await this.playBase64Wav(audioBase64);
         return;
       } catch (error) {
@@ -77,7 +81,7 @@ class SpeechService {
       }
     }
 
-    this.speakSystem(cleanText, accent);
+    if (generation === this.generation) this.speakSystem(cleanText, accent);
   }
 
   private async playBase64Wav(base64: string) {

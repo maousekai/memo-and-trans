@@ -3,6 +3,24 @@ use base64::{engine::general_purpose, Engine as _};
 use serde::Serialize;
 use std::{sync::OnceLock, time::Duration};
 use tauri::{AppHandle, WebviewWindow};
+use tauri_plugin_autostart::ManagerExt;
+
+#[tauri::command]
+pub fn set_autostart_enabled(app: AppHandle, enabled: bool) -> Result<(), String> {
+    let manager = app.autolaunch();
+    if enabled { manager.enable() } else { manager.disable() }
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn get_autostart_enabled(app: AppHandle) -> Result<bool, String> {
+    app.autolaunch().is_enabled().map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn launched_minimized() -> bool {
+    std::env::args().any(|arg| arg == "--minimized")
+}
 
 static HTTP_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
 
@@ -222,7 +240,7 @@ fn build_nim_request_body(model: &str, prompt: &str, temperature: f32) -> serde_
             }
         ],
         "temperature": temperature,
-        "max_tokens": 900,
+        "max_tokens": 4096,
         "stream": false
     });
 
@@ -254,7 +272,7 @@ pub async fn query_nvidia_nim(
     let body = build_nim_request_body(&model, &prompt, temperature.unwrap_or(0.1));
     // Callers choose their own task budget. Translation/analysis still pass
     // <= 4500ms explicitly, while dictionary enrichment may use up to 8s.
-    let timeout = timeout_ms.unwrap_or(4500).clamp(500, 8000);
+    let timeout = timeout_ms.unwrap_or(4500).clamp(500, 15000);
 
     let resp = shared_http_client()
         .post("https://integrate.api.nvidia.com/v1/chat/completions")
@@ -283,6 +301,10 @@ pub async fn query_nvidia_nim(
         .await
         .map_err(|e| format!("Failed to parse response: {}", e))?;
 
+    let finish_reason = json_resp["choices"][0]["finish_reason"].as_str().unwrap_or("unknown");
+    if finish_reason != "stop" {
+        return Err(format!("NVIDIA did not complete the answer (finish_reason={})", finish_reason));
+    }
     let content = json_resp["choices"][0]["message"]["content"]
         .as_str()
         .unwrap_or("")
@@ -357,7 +379,7 @@ pub async fn translate_nvidia_riva(
         "stream": false
     });
 
-    let timeout = timeout_ms.unwrap_or(5000).clamp(500, 8000);
+    let timeout = timeout_ms.unwrap_or(5000).clamp(500, 15000);
 
     let resp = shared_http_client()
         .post("https://integrate.api.nvidia.com/v1/chat/completions")
@@ -390,6 +412,10 @@ pub async fn translate_nvidia_riva(
         .await
         .map_err(|e| format!("Failed to parse NVIDIA Riva Translate response: {}", e))?;
 
+    let finish_reason = json_resp["choices"][0]["finish_reason"].as_str().unwrap_or("unknown");
+    if finish_reason != "stop" {
+        return Err(format!("NVIDIA did not complete the answer (finish_reason={})", finish_reason));
+    }
     let content = json_resp["choices"][0]["message"]["content"]
         .as_str()
         .unwrap_or("")

@@ -1,3 +1,5 @@
+import { translationRouter } from "./server/translationRoutes";
+import { parseModelJson, evaluationSchema } from "./src/services/ai/responseValidation";
 import express from "express";
 import path from "path";
 import { createServer as createViteServer } from "vite";
@@ -11,6 +13,7 @@ const app = express();
 const PORT = 3000;
 
 app.use(express.json());
+app.use("/api/translation", translationRouter);
 
 // NVIDIA NIM Configuration
 const NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1";
@@ -114,40 +117,7 @@ function extractJsonString(raw: string): string {
   return text;
 }
 
-function parseJsonSafely<T = any>(raw: string): T {
-  const extracted = extractJsonString(raw);
-
-  // Attempt 1: Direct JSON.parse
-  try {
-    return JSON.parse(extracted) as T;
-  } catch (firstErr) {
-    // Attempt 2: Strip comments and trailing commas before braces or brackets
-    const sanitized = extracted
-      .replace(/\/\*[\s\S]*?\*\//g, "") // remove block comments
-      .replace(/\/\/[^\n\r]*/g, "")     // remove inline comments
-      .replace(/,\s*([\]}])/g, "$1");   // remove trailing commas
-
-    try {
-      return JSON.parse(sanitized) as T;
-    } catch {
-      // Attempt 3: Fix unescaped control characters
-      try {
-        const sanitizedControl = sanitized.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, "");
-        return JSON.parse(sanitizedControl) as T;
-      } catch {
-        // Attempt 4: Extract braces directly from original raw string
-        const firstBrace = raw.indexOf("{");
-        const lastBrace = raw.lastIndexOf("}");
-        if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
-          const directBraces = raw.substring(firstBrace, lastBrace + 1)
-            .replace(/,\s*([\]}])/g, "$1");
-          return JSON.parse(directBraces) as T;
-        }
-        throw firstErr;
-      }
-    }
-  }
-}
+function parseJsonSafely(raw: string): any { return parseModelJson(raw); }
 
 // Normalizes dictionary structure to be resilient against LLM schema deviations
 function normalizeDictionaryEntry(data: any, queryWord: string): any {
@@ -255,28 +225,6 @@ function normalizeDictionaryEntry(data: any, queryWord: string): any {
     commonCollocations: Array.isArray(data.commonCollocations) ? data.commonCollocations.map(String) : [],
     commonMistakes,
     mnemonic: typeof data.mnemonic === "string" ? data.mnemonic : null
-  };
-}
-
-// Normalizes sentence evaluation output
-function normalizeSentenceEvaluation(data: any): any {
-  if (!data || typeof data !== "object") data = {};
-  const num = (v: any, fallback = 75) => {
-    const n = Number(v);
-    return isNaN(n) ? fallback : Math.max(0, Math.min(100, Math.round(n)));
-  };
-  return {
-    overallScore: num(data.overallScore, 75),
-    grammarScore: num(data.grammarScore, 80),
-    meaningScore: num(data.meaningScore, 75),
-    naturalnessScore: num(data.naturalnessScore, 70),
-    collocationScore: num(data.collocationScore, 70),
-    isAccurate: typeof data.isAccurate === "boolean" ? data.isAccurate : true,
-    vietnameseFeedback: typeof data.vietnameseFeedback === "string" && data.vietnameseFeedback.trim()
-      ? data.vietnameseFeedback.trim()
-      : "Câu của bạn diễn đạt khá tốt.",
-    correctedSentence: typeof data.correctedSentence === "string" ? data.correctedSentence : null,
-    betterAlternatives: Array.isArray(data.betterAlternatives) ? data.betterAlternatives.map(String) : [],
   };
 }
 
@@ -545,8 +493,7 @@ Evaluate the sentence and return ONLY valid JSON matching this schema:
     const data = await response.json();
     const rawContent = data.choices?.[0]?.message?.content || "";
     const parsed = parseJsonSafely(rawContent);
-    const normalized = normalizeSentenceEvaluation(parsed);
-    const validated = SentenceEvaluationSchema.parse(normalized);
+    const validated = evaluationSchema.parse(parsed);
 
     res.json(validated);
   } catch (error: any) {

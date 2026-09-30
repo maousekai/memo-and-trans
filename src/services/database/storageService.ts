@@ -9,18 +9,21 @@ import {
   updateWeaknessProfile,
   computeMasteryScore,
 } from "../fsrs/fsrsEngine";
-import { DEMO_DICTIONARY_ENTRIES } from "../../data/demoEntries";
 import { AppSettings, DEFAULT_SETTINGS, NVIDIA_MODELS } from "../../types/settings";
+import { upgradeSavedEntry } from "../dictionary/entryIntegrity";
 
 const STORAGE_KEY_WORDS = "lexiglass_sqlite_words_v2";
 const STORAGE_KEY_PHRASES = "lexiglass_saved_phrases_v2";
 const STORAGE_KEY_LEGACY_PHRASES = "lexiglass_saved_phrases_v1";
 const STORAGE_KEY_SETTINGS = "lexiglass_sqlite_settings_v2";
 
-class StorageService {
+export class StorageService {
   private words: Map<string, SavedWord> = new Map();
   private phrases: Map<string, SavedPhrase> = new Map();
   private isInitialized = false;
+  private durableWords = '[]';
+  private durablePhrases = '[]';
+  private initializationError: string | null = null;
 
   constructor() {
     this.init();
@@ -51,17 +54,20 @@ class StorageService {
       const stored = localStorage.getItem(STORAGE_KEY_WORDS);
       if (stored) {
         const parsed: SavedWord[] = JSON.parse(stored);
+        if (!Array.isArray(parsed)) throw new Error('Invalid saved words');
+        this.durableWords = stored;
         parsed.forEach((raw) => {
           const w = this.hydrateCommonFields({ ...raw, kind: "word" as const });
+          w.dictionary = upgradeSavedEntry(w.dictionary);
           this.words.set(w.normalizedWord.toLowerCase(), w);
         });
-      } else {
-        this.seedInitialData();
       }
 
       const storedPhrases = localStorage.getItem(STORAGE_KEY_PHRASES);
       if (storedPhrases) {
         const parsed: SavedPhrase[] = JSON.parse(storedPhrases);
+        if (!Array.isArray(parsed)) throw new Error('Invalid saved phrases');
+        this.durablePhrases = storedPhrases;
         parsed.forEach((raw) => {
           const normalizedSource = raw.normalizedSource || this.normalizePhrase(raw.sourceText || "");
           if (!normalizedSource) return;
@@ -79,9 +85,9 @@ class StorageService {
 
       this.isInitialized = true;
     } catch (e) {
-      console.error("Failed to initialize storage:", e);
-      if (this.words.size === 0) this.seedInitialData();
-      this.migrateLegacyPhrases();
+      // Preserve unreadable data for recovery; never overwrite it with demo entries.
+      this.initializationError = "Không đọc được dữ liệu đã lưu. Hãy sao lưu dữ liệu trước khi khôi phục.";
+      this.isInitialized = true;
     }
   }
 
@@ -125,150 +131,47 @@ class StorageService {
     }
   }
 
-  private seedInitialData() {
-    const demo1 = DEMO_DICTIONARY_ENTRIES["mitigate"];
-    const demo2 = DEMO_DICTIONARY_ENTRIES["subtle"];
-    const demo3 = DEMO_DICTIONARY_ENTRIES["comprehensive"];
-
-    if (demo1) {
-      const word1: SavedWord = {
-        kind: "word",
-        id: "demo-mitigate",
-        word: demo1.query,
-        normalizedWord: demo1.normalizedWord.toLowerCase(),
-        dictionary: demo1,
-        createdAt: new Date(Date.now() - 3 * 86400000).toISOString(),
-        lastReviewedAt: new Date(Date.now() - 1 * 86400000).toISOString(),
-        tags: ["Academic", "IELTS"],
-        notes: "Thường dùng trong báo cáo đánh giá rủi ro (risk management).",
-        learningStage: 3,
-        mastery: 65,
-        favorite: true,
-        isKnown: false,
-        fsrs: {
-          ...createDefaultFSRSCard(),
-          reps: 3,
-          stability: 3.5,
-          difficulty: 3.0,
-          state: 2,
-          due: new Date(Date.now() - 3600000).toISOString(),
-        },
-        weaknesses: {
-          meaningErrors: 0,
-          spellingErrors: 1,
-          listeningErrors: 0,
-          contextErrors: 0,
-          productionErrors: 1,
-        },
-        personalizedWeakness: {
-          meaningRecall: 0.9,
-          spellingRecall: 0.7,
-          listeningRecall: 0.85,
-          contextRecall: 0.75,
-          productionRecall: 0.6,
-        },
-        history: [
-          {
-            id: "log-1",
-            wordId: "demo-mitigate",
-            cardType: "cloze",
-            rating: "good",
-            reviewedAt: new Date(Date.now() - 1 * 86400000).toISOString(),
-            intervalDays: 1,
-          },
-        ],
-      };
-      this.words.set(word1.normalizedWord, word1);
+  private persistenceFailure(): never {
+    const message = this.initializationError ||
+      "Không lưu được dữ liệu. Dữ liệu trước đó vẫn được giữ; hãy giải phóng dung lượng rồi thử lại.";
+    if (typeof window !== "undefined" && typeof window.dispatchEvent === "function") {
+      window.dispatchEvent(new CustomEvent("lexiglass-storage-error", { detail: message }));
     }
-
-    if (demo2) {
-      const word2: SavedWord = {
-        kind: "word",
-        id: "demo-subtle",
-        word: demo2.query,
-        normalizedWord: demo2.normalizedWord.toLowerCase(),
-        dictionary: demo2,
-        createdAt: new Date(Date.now() - 1 * 86400000).toISOString(),
-        lastReviewedAt: null,
-        tags: ["Advanced", "Literature"],
-        notes: "Chú ý âm 'b' câm, không phát âm /b/.",
-        learningStage: 1,
-        mastery: 40,
-        favorite: false,
-        isKnown: false,
-        fsrs: {
-          ...createDefaultFSRSCard(),
-          due: new Date().toISOString(),
-        },
-        weaknesses: {
-          meaningErrors: 0,
-          spellingErrors: 0,
-          listeningErrors: 1,
-          contextErrors: 0,
-          productionErrors: 0,
-        },
-        personalizedWeakness: {
-          meaningRecall: 0.85,
-          spellingRecall: 0.8,
-          listeningRecall: 0.55,
-          contextRecall: 0.8,
-          productionRecall: 0.7,
-        },
-        history: [],
-      };
-      this.words.set(word2.normalizedWord, word2);
-    }
-
-    if (demo3) {
-      const word3: SavedWord = {
-        kind: "word",
-        id: "demo-comprehensive",
-        word: demo3.query,
-        normalizedWord: demo3.normalizedWord.toLowerCase(),
-        dictionary: demo3,
-        createdAt: new Date().toISOString(),
-        lastReviewedAt: null,
-        tags: ["Business", "Academic"],
-        notes: "Phân biệt với comprehensible (dễ hiểu).",
-        learningStage: 0,
-        mastery: 20,
-        favorite: true,
-        isKnown: false,
-        fsrs: createDefaultFSRSCard(),
-        weaknesses: createDefaultWeaknessProfile(),
-        personalizedWeakness: createDefaultPersonalizedWeakness(),
-        history: [],
-      };
-      this.words.set(word3.normalizedWord, word3);
-    }
-
-    this.persistWords();
+    throw new Error(message);
   }
 
   private persistWords() {
     try {
-      localStorage.setItem(STORAGE_KEY_WORDS, JSON.stringify(Array.from(this.words.values())));
-    } catch (e) {
-      console.error("Failed to persist words:", e);
+      if (this.initializationError) return this.persistenceFailure();
+      const next = JSON.stringify(Array.from(this.words.values()));
+      localStorage.setItem(STORAGE_KEY_WORDS, next);
+      this.durableWords = next;
+    } catch {
+      this.words = new Map((JSON.parse(this.durableWords) as SavedWord[]).map((w) => [w.normalizedWord.toLowerCase(), w]));
+      this.persistenceFailure();
     }
   }
 
   private persistPhrases() {
     try {
-      localStorage.setItem(STORAGE_KEY_PHRASES, JSON.stringify(Array.from(this.phrases.values())));
-    } catch (e) {
-      console.error("Failed to persist phrases:", e);
+      if (this.initializationError) return this.persistenceFailure();
+      const next = JSON.stringify(Array.from(this.phrases.values()));
+      localStorage.setItem(STORAGE_KEY_PHRASES, next);
+      this.durablePhrases = next;
+    } catch {
+      this.phrases = new Map((JSON.parse(this.durablePhrases) as SavedPhrase[]).map((p) => [p.normalizedSource, p]));
+      this.persistenceFailure();
     }
   }
 
   public getAllWords(): SavedWord[] {
-    return Array.from(this.words.values()).sort(
+    return structuredClone(Array.from(this.words.values())).sort(
       (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
     );
   }
 
   public getAllPhrases(): SavedPhrase[] {
-    return Array.from(this.phrases.values()).sort(
+    return structuredClone(Array.from(this.phrases.values())).sort(
       (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
     );
   }
@@ -543,25 +446,38 @@ class StorageService {
     let learned = 0;
     let totalLogs = 0;
     let successfulLogs = 0;
+    let reviewedToday = 0;
 
     all.forEach((item) => {
       if (new Date(item.fsrs.due).getTime() <= now.getTime() && !item.isKnown) dueToday++;
       if (new Date(item.createdAt).getTime() >= todayStart) newToday++;
       if (item.mastery >= 70 || item.isKnown) learned++;
       item.history.forEach((h) => {
+        if (h.id === 'log-1' && item.id === 'demo-mitigate') return;
         totalLogs++;
+        if (new Date(h.reviewedAt).getTime() >= todayStart) reviewedToday++;
         if (h.rating === "good" || h.rating === "easy") successfulLogs++;
       });
     });
 
-    const retentionRate = totalLogs > 0 ? Math.round((successfulLogs / totalLogs) * 100) : 94;
+    const retentionRate = totalLogs > 0 ? Math.round((successfulLogs / totalLogs) * 100) : 0;
+    const dateKey = (date: Date) => [date.getFullYear(), date.getMonth(), date.getDate()].join("-");
+    const reviewedDays = new Set(all.flatMap((item) => item.history.filter((h) => !(h.id === 'log-1' && item.id === 'demo-mitigate')).map((h) => dateKey(new Date(h.reviewedAt)))));
+    const day = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    if (!reviewedDays.has(dateKey(day))) day.setDate(day.getDate() - 1);
+    let currentStreak = 0;
+    while (reviewedDays.has(dateKey(day))) {
+      currentStreak++;
+      day.setDate(day.getDate() - 1);
+    }
     return {
       wordsDueToday: dueToday,
       newWordsToday: newToday,
       wordsLearned: learned,
       retentionRate,
-      currentStreak: 3,
+      currentStreak,
       totalReviewedCount: totalLogs,
+      reviewedToday,
     };
   }
 
@@ -590,8 +506,8 @@ class StorageService {
   public saveSettings(settings: AppSettings) {
     try {
       localStorage.setItem(STORAGE_KEY_SETTINGS, JSON.stringify(settings));
-    } catch (e) {
-      console.error("Failed to save settings:", e);
+    } catch {
+      this.persistenceFailure();
     }
   }
 }

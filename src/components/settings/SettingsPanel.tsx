@@ -1,3 +1,4 @@
+import { translationService } from "../../services/translation/translationService";
 import React, { useState } from "react";
 import {
   AlertCircle,
@@ -49,10 +50,11 @@ export const SettingsPanel: React.FC = () => {
     setApiMessage(null);
     try {
       await aiService.saveApiKey(apiKey.trim());
+      translationService.clearProviderStatusCache();
       await aiService.testConnection(settings.defaultModel);
       await store.init();
       setApiKey("");
-      setApiMessage({ ok: true, text: "Kết nối NVIDIA API thành công." });
+      setApiMessage({ ok: true, text: "Đã kiểm tra kết nối Nemotron và Riva Translate." });
     } catch (error: any) {
       setApiMessage({ ok: false, text: String(error?.message || error || "Không thể kết nối NVIDIA API.") });
     } finally {
@@ -65,6 +67,7 @@ export const SettingsPanel: React.FC = () => {
     setApiBusy(true);
     try {
       await aiService.saveApiKey("");
+      translationService.clearProviderStatusCache();
       await store.init();
       setApiMessage({ ok: true, text: "Đã xóa NVIDIA API key khỏi máy." });
     } catch (error: any) {
@@ -89,7 +92,7 @@ export const SettingsPanel: React.FC = () => {
           </div>
           {aiStatus.configured ? (
             <span className="flex items-center gap-1 text-[11px] text-emerald-200/90 bg-emerald-300/[0.06] px-2 py-1 rounded-full border border-emerald-200/[0.10]">
-              <ShieldCheck className="w-3.5 h-3.5" /> Đã kết nối
+              <ShieldCheck className="w-3.5 h-3.5" /> Đã lưu key
             </span>
           ) : (
             <span className="flex items-center gap-1 text-[11px] text-amber-100/85 bg-amber-200/[0.05] px-2 py-1 rounded-full border border-amber-100/[0.10]">
@@ -169,7 +172,7 @@ export const SettingsPanel: React.FC = () => {
         </div>
         <div className={`${settingRow} border-b border-white/[0.06]`}>
           <div><span className="font-semibold block text-slate-100">Khởi động cùng Windows</span><span className="text-[11px] text-slate-400">Sẵn sàng tra/dịch sau khi đăng nhập.</span></div>
-          <input type="checkbox" checked={settings.startWithWindows} onChange={(e) => update({ startWithWindows: e.target.checked })} className="w-4 h-4 accent-slate-300 cursor-pointer" />
+          <input type="checkbox" disabled={!desktopBridge.isTauri} checked={settings.startWithWindows} onChange={(e) => { void store.setStartWithWindows(e.target.checked).catch((error) => setApiMessage({ ok: false, text: String(error?.message || error) })); }} className="w-4 h-4 accent-slate-300 cursor-pointer" />
         </div>
         <div className={settingRow}>
           <div><span className="font-semibold block text-slate-100">Khởi động thu gọn</span><span className="text-[11px] text-slate-400">Mở dưới dạng bong bóng nổi nhỏ.</span></div>

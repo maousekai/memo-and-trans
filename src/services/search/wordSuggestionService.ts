@@ -448,11 +448,9 @@ class WordSuggestionService {
       .slice(0, limit);
   }
 
-  shouldAutoPreferSuggestion(inputRaw: string, suggestion?: WordSuggestion): boolean {
-    if (!suggestion) return false;
-    const input = normalizeWord(inputRaw);
-    if (!input || suggestion.reason === "prefix") return false;
-    return suggestion.reason === "common-typo" || (suggestion.score >= 0.93 && (suggestion.editDistance ?? 9) <= 1);
+  shouldAutoPreferSuggestion(_inputRaw: string, _suggestion?: WordSuggestion): boolean {
+    // Suggestions require an explicit selection, including plausible typos.
+    return false;
   }
 }
 

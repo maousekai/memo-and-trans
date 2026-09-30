@@ -76,10 +76,19 @@ pub fn run() {
 
                     let app_handle = app.clone();
                     std::thread::spawn(move || {
-                        let selected = crate::selection::capture_selected_text_sync(&app_handle)
-                            .unwrap_or_default();
+                        let selection = crate::selection::capture_selected_text_sync(&app_handle);
 
                         if let Some(window) = app_handle.get_webview_window("main") {
+                            let selected = match selection {
+                                Ok(text) => text,
+                                Err(message) => {
+                                    if let Ok(payload) = serde_json::to_string(&message) {
+                                        let _ = window.eval(&format!("window.dispatchEvent(new CustomEvent('lexiglass-capture-error', {{ detail: {} }}));", payload));
+                                    }
+                                    let _ = window.show();
+                                    return;
+                                }
+                            };
                             let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize {
                                 width: 440.0,
                                 height: 620.0,
@@ -144,6 +153,9 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::get_selected_text,
+            commands::set_autostart_enabled,
+            commands::get_autostart_enabled,
+            commands::launched_minimized,
             commands::set_always_on_top,
             commands::set_window_size,
             commands::start_dragging,

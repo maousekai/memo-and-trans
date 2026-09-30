@@ -33,6 +33,7 @@ export const FlashcardReview: React.FC = () => {
   // Sentence production state
   const [sentenceInput, setSentenceInput] = useState("");
   const [isEvaluating, setIsEvaluating] = useState(false);
+  const [evaluationError, setEvaluationError] = useState<string | null>(null);
   const [sentenceEval, setSentenceEval] = useState<SentenceEvaluation | null>(null);
 
   const currentCard = studyCards[activeIndex];
@@ -45,6 +46,7 @@ export const FlashcardReview: React.FC = () => {
     setTypedFeedback(null);
     setSentenceInput("");
     setSentenceEval(null);
+    setEvaluationError(null);
   }, [activeIndex]);
 
   // Audio auto-play for listening card
@@ -69,6 +71,8 @@ export const FlashcardReview: React.FC = () => {
   const handleEvaluateSentence = async () => {
     if (!currentCard || !sentenceInput.trim()) return;
     setIsEvaluating(true);
+    setSentenceEval(null);
+    setEvaluationError(null);
     try {
       const result = await aiService.evaluateSentence(
         currentCard.word,
@@ -79,7 +83,7 @@ export const FlashcardReview: React.FC = () => {
       setSentenceEval(result);
       store.revealAnswer();
     } catch (e: any) {
-      console.error(e);
+      setEvaluationError(String(e?.message || 'Chưa chấm được câu. Hãy thử lại.'));
     } finally {
       setIsEvaluating(false);
     }
@@ -137,6 +141,7 @@ export const FlashcardReview: React.FC = () => {
 
   return (
     <div className="flex flex-col h-full space-y-3">
+      {evaluationError && <p role="alert" className="text-xs text-amber-200">{evaluationError}</p>}
       {/* Queue selector & Progress */}
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div className="flex items-center gap-1.5 p-1 rounded-xl bg-white/[0.04] border border-white/10">

@@ -129,8 +129,7 @@ export class TauriDesktopBridge implements DesktopBridge {
       const text = await invokeNative<string>("capture_selected_text");
       return text?.trim() || null;
     } catch (error) {
-      console.warn("Native selected-text capture failed:", error);
-      return null;
+      throw new Error(String(error));
     }
   }
 

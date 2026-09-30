@@ -4,6 +4,7 @@ import { createGunzip, inflateRawSync } from "node:zlib";
 import { Readable } from "node:stream";
 import { createInterface } from "node:readline";
 import { TOEIC_PRIORITY_WORDS } from "./toeic-priority-words.mjs";
+import { verifyDictionarySnapshot } from './dictionary-snapshot.mjs';
 
 const OUTPUT = path.resolve("src/data/offlineDictionary10000.generated.ts");
 const OUTPUT_DATA_DIR = path.resolve("public/dictionary");
@@ -13,6 +14,7 @@ const OUTPUT_HEADWORDS_JSON = path.join(OUTPUT_DATA_DIR, "headwords.json");
 const DATA_SCHEMA_VERSION = 4;
 const MIN_EXPECTED_COUNT = 150000;
 const THICHHOC_REPO = "thichhoc-org/thichhoc-dict";
+const THICHHOC_REVISION = '4d6e92e8bcf8e3e762410c2b0a9f98fea8e62e5b';
 const THICHHOC_ENTRIES_PREFIX = "dict-en-vi/data/entries/";
 const TATOEBA_ZIP_URL = "https://www.manythings.org/anki/vie-eng.zip";
 const VIWIKTIONARY_GZ_URL = "https://kaikki.org/viwiktionary/raw-wiktextract-data.jsonl.gz";
@@ -55,7 +57,7 @@ function normalizeWord(value) {
     .replace(/\s+/g, " ");
 }
 
-async function fetchResponse(url, timeoutMs = 20000) {
+async function fetchResponse(url, timeoutMs, consume) {
   let lastError;
   for (let attempt = 1; attempt <= 3; attempt += 1) {
     const controller = new AbortController();
@@ -69,7 +71,7 @@ async function fetchResponse(url, timeoutMs = 20000) {
         },
       });
       if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
-      return response;
+      return await consume(response);
     } catch (error) {
       lastError = error;
       if (attempt < 3) await new Promise((resolve) => setTimeout(resolve, attempt * 700));
@@ -81,18 +83,16 @@ async function fetchResponse(url, timeoutMs = 20000) {
 }
 
 async function fetchText(url, timeoutMs = 20000) {
-  return await (await fetchResponse(url, timeoutMs)).text();
+  return fetchResponse(url, timeoutMs, (response) => response.text());
 }
 
 async function fetchBuffer(url, timeoutMs = 25000) {
-  return Buffer.from(await (await fetchResponse(url, timeoutMs)).arrayBuffer());
+  return Buffer.from(await fetchResponse(url, timeoutMs, (response) => response.arrayBuffer()));
 }
 
-async function forEachGzipJsonLine(url, onRow, timeoutMs = 60000) {
-  const response = await fetchResponse(url, timeoutMs);
-  if (!response.body) throw new Error(`No response body for ${url}`);
-
-  const input = Readable.fromWeb(response.body).pipe(createGunzip());
+async function forEachGzipJsonLine(url, onRow, timeoutMs = 180000) {
+  const compressed = await fetchBuffer(url, timeoutMs);
+  const input = Readable.from([compressed]).pipe(createGunzip());
   const lines = createInterface({ input, crlfDelay: Infinity });
   let parsed = 0;
 
@@ -184,7 +184,8 @@ async function alreadyGenerated() {
       count &&
       Number(count[1]) >= MIN_EXPECTED_COUNT &&
       Number(meta?.schemaVersion) === DATA_SCHEMA_VERSION &&
-      Number(meta?.headwordCount) >= MIN_EXPECTED_COUNT
+      Number(meta?.headwordCount) >= MIN_EXPECTED_COUNT &&
+      await verifyDictionarySnapshot(OUTPUT_DATA_DIR, true)
     );
   } catch {
     return false;
@@ -208,7 +209,7 @@ function dictionarySourceUrls() {
   files.push("general-other.jsonl");
 
   return files.map(
-    (file) => `https://raw.githubusercontent.com/${THICHHOC_REPO}/main/${THICHHOC_ENTRIES_PREFIX}${file}`,
+    (file) => `https://raw.githubusercontent.com/${THICHHOC_REPO}/${THICHHOC_REVISION}/${THICHHOC_ENTRIES_PREFIX}${file}`,
   );
 }
 
@@ -530,6 +531,9 @@ await writeFile(OUTPUT_META_JSON, JSON.stringify(meta), "utf8");
 
 const output = `${HEADER}export const OFFLINE_DICTIONARY_SCHEMA_VERSION = ${DATA_SCHEMA_VERSION};\nexport const OFFLINE_DICTIONARY_10000_COUNT = ${selected.length};\nexport const OFFLINE_DICTIONARY_ALIAS_COUNT = ${Object.keys(aliases).length};\nexport const OFFLINE_DICTIONARY_EXAMPLE_WORD_COUNT = ${finalExampleWordCount};\nexport const OFFLINE_DICTIONARY_EXAMPLE_SENTENCE_COUNT = ${finalExampleSentenceCount};\nexport const OFFLINE_DICTIONARY_SHARD_KEYS = ${JSON.stringify(shardKeys)} as const;\n`;
 await writeFile(OUTPUT, output, "utf8");
+if (!await verifyDictionarySnapshot(OUTPUT_DATA_DIR, true, true)) {
+  throw new Error('Generated dictionary snapshot is incomplete.');
+}
 
 const totalShardBytes = (await Promise.all(
   shardKeys.map(async (key) => Buffer.byteLength(JSON.stringify(shards.get(key)))),

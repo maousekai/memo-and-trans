@@ -20,7 +20,7 @@ export const MeaningCard: React.FC<MeaningCardProps> = ({ meaning, index }) => {
         <div className="flex-1">
           <div className="flex items-center gap-2 flex-wrap">
             <h4 className="text-sm font-bold text-slate-100 leading-snug">
-              {meaning.vietnamese}
+              {meaning.vietnamese || 'Chưa có nghĩa tiếng Việt'}
             </h4>
             {meaning.register && meaning.register !== "neutral" && (
               <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/[0.06] text-slate-400 border border-white/10 italic">

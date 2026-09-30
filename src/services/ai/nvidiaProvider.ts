@@ -1,3 +1,4 @@
+import { parseModelJson, evaluationSchema } from "./responseValidation";
 import { DictionaryEntry, SentenceEvaluation } from "../../types/dictionary";
 import { AIProvider, AIStatus } from "./types";
 import { DEMO_DICTIONARY_ENTRIES } from "../../data/demoEntries";
@@ -7,14 +8,6 @@ const CACHE_KEY_PREFIX = "lexiglass_dict_cache_";
 const FAST_LOOKUP_MODEL = "nvidia/nemotron-3.5-lightning-30b-a3b";
 const DEFAULT_MODEL = FAST_LOOKUP_MODEL;
 
-function extractJson(raw: string): any {
-  const text = String(raw || "").trim();
-  if (!text) throw new Error("AI không trả về nội dung.");
-  const first = text.indexOf("{");
-  const last = text.lastIndexOf("}");
-  const json = first >= 0 && last > first ? text.slice(first, last + 1) : text;
-  return JSON.parse(json.replace(/,\s*([}\]])/g, "$1"));
-}
 
 function normalizeEntry(data: any, queryWord: string): DictionaryEntry {
   const normalizedWord = String(data?.normalizedWord || queryWord).trim().toLowerCase();
@@ -129,8 +122,10 @@ export class NvidiaNIMProvider implements AIProvider {
       prompt: 'Return exactly this JSON object: {"ok":true}',
       temperature: 0,
     });
-    const parsed = extractJson(raw);
-    if (parsed?.ok !== true) throw new Error("NVIDIA API trả về phản hồi không hợp lệ.");
+    const parsed = parseModelJson(raw);
+    if ((parsed as { ok?: boolean })?.ok !== true) throw new Error("NVIDIA API trả về phản hồi không hợp lệ.");
+    const translation = await invokeNative<string>("translate_nvidia_riva", { text: "Hello.", timeoutMs: 10000 });
+    if (typeof translation !== "string" || !translation.trim()) throw new Error("Riva Translate chưa phản hồi hợp lệ.");
   }
 
   private async lookupNativeWithModel(word: string, model: string, timeoutMs = 7000): Promise<DictionaryEntry> {
@@ -140,7 +135,7 @@ export class NvidiaNIMProvider implements AIProvider {
       temperature: 0.1,
       timeoutMs,
     });
-    const entry = normalizeEntry(extractJson(raw), word);
+    const entry = normalizeEntry(parseModelJson(raw), word);
     if (!entry.partsOfSpeech.length) throw new Error("AI không trả về dữ liệu từ điển hợp lệ.");
     return entry;
   }
@@ -208,13 +203,13 @@ export class NvidiaNIMProvider implements AIProvider {
     if (isTauriRuntime()) {
       try {
         const prompt = `Evaluate this learner sentence using the target English word "${word}".\nSentence: "${sentence}"\nTarget meaning: "${meaningContext || ""}"\nReturn ONLY JSON: {"overallScore":number,"grammarScore":number,"meaningScore":number,"naturalnessScore":number,"collocationScore":number,"isAccurate":boolean,"vietnameseFeedback":"string","correctedSentence":"string|null","betterAlternatives":["string"]}`;
-        return extractJson(await invokeNative<string>("query_nvidia_nim", {
+        return evaluationSchema.parse(parseModelJson(await invokeNative<string>("query_nvidia_nim", {
           model: model || DEFAULT_MODEL,
           prompt,
           temperature: 0.15,
-        })) as SentenceEvaluation;
+        })));
       } catch {
-        return this.simulateSentenceEvaluation(word, sentence);
+        throw new Error("Chưa chấm được câu vì dịch vụ AI không phản hồi hoặc trả dữ liệu không hợp lệ. Hãy thử lại; chưa có điểm nào được ghi nhận.");
       }
     }
 
@@ -225,24 +220,13 @@ export class NvidiaNIMProvider implements AIProvider {
         body: JSON.stringify({ word, userSentence: sentence, targetMeaning: meaningContext, model }),
       });
       if (!res.ok) throw new Error("Không thể chấm điểm câu qua NVIDIA AI.");
-      return await res.json();
+      return evaluationSchema.parse(await res.json());
     } catch {
-      return this.simulateSentenceEvaluation(word, sentence);
+      throw new Error("Chưa chấm được câu vì dịch vụ AI không phản hồi hoặc trả dữ liệu không hợp lệ. Hãy thử lại; chưa có điểm nào được ghi nhận.");
     }
   }
 
-  private simulateSentenceEvaluation(word: string, sentence: string): SentenceEvaluation {
-    const lower = sentence.toLowerCase();
-    const hasWord = lower.includes(word.toLowerCase());
-    const lengthValid = sentence.trim().split(/\s+/).length >= 5;
-    if (!hasWord) {
-      return { overallScore: 35, grammarScore: 70, meaningScore: 30, naturalnessScore: 40, collocationScore: 20, isAccurate: false, vietnameseFeedback: `Câu chưa sử dụng từ khóa mục tiêu "${word}".`, betterAlternatives: [] };
-    }
-    if (!lengthValid) {
-      return { overallScore: 60, grammarScore: 75, meaningScore: 65, naturalnessScore: 60, collocationScore: 50, isAccurate: true, vietnameseFeedback: "Câu đúng nhưng còn quá ngắn; hãy thêm ngữ cảnh tự nhiên hơn.", correctedSentence: sentence.endsWith(".") ? sentence : `${sentence}.`, betterAlternatives: [] };
-    }
-    return { overallScore: 90, grammarScore: 92, meaningScore: 90, naturalnessScore: 88, collocationScore: 88, isAccurate: true, vietnameseFeedback: "Cách dùng từ phù hợp và tự nhiên.", betterAlternatives: [] };
-  }
+
 }
 
 export const aiService = new NvidiaNIMProvider();

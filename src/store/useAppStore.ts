@@ -19,6 +19,7 @@ import { localDictionaryService } from "../services/dictionary/localDictionarySe
 import { classifyInput } from "../services/translation/inputClassifier";
 import { translationService } from "../services/translation/translationService";
 import { translationCache } from "../services/translation/translationCache";
+import { invokeNative, isTauriRuntime } from "../services/desktop/tauriInvoke";
 
 export type StudyTab = "notebook" | "flashcards" | "dashboard" | "settings";
 export type LookupSource = "cache" | "saved" | "local" | "public" | "ai" | "demo" | null;
@@ -33,6 +34,8 @@ interface AppState {
   queryMode: QueryMode;
   currentEntry: DictionaryEntry | null;
   currentTranslation: TranslationResult | null;
+  translationInput: string;
+  translatedSegments: TranslationResult[];
   isLoading: boolean;
   isEnriching: boolean;
   isTranslating: boolean;
@@ -102,11 +105,13 @@ let state: AppState = {
   windowMode: "lookup",
   lastExpandedMode: "lookup",
   studyTab: "notebook",
-  isPinned: true,
+  isPinned: initialSettings.alwaysOnTop,
   searchQuery: "mitigate",
   queryMode: "dictionary",
   currentEntry: initialWord,
   currentTranslation: null,
+  translationInput: '',
+  translatedSegments: [],
   isLoading: false,
   isEnriching: false,
   isTranslating: false,
@@ -195,6 +200,7 @@ function buildStudyQueue(type: QueueType, words: SavedWord[], phrases: SavedPhra
 
 function refreshLearningState() {
   updateState({
+    error: null,
     savedWords: storageService.getAllWords(),
     savedPhrases: storageService.getAllPhrases(),
   });
@@ -228,9 +234,15 @@ export const store = {
         })();
       });
 
+      await desktopBridge.setAlwaysOnTop(state.settings.alwaysOnTop);
+      updateState({ isPinned: state.settings.alwaysOnTop });
       store.setQueueType("due");
 
-      if (state.settings.launchMinimized) {
+      if (isTauriRuntime()) {
+        const enabled = await invokeNative<boolean>('get_autostart_enabled');
+        updateState({ settings: { ...state.settings, startWithWindows: enabled } });
+      }
+      if (state.settings.launchMinimized || (isTauriRuntime() && await invokeNative<boolean>('launched_minimized'))) {
         await store.setWindowMode("bubble");
       }
     } catch {
@@ -257,8 +269,9 @@ export const store = {
 
   togglePin: async () => {
     const next = !state.isPinned;
-    updateState({ isPinned: next });
     await desktopBridge.setAlwaysOnTop(next);
+    store.updateSettings({ alwaysOnTop: next });
+    updateState({ isPinned: next });
   },
 
   setSearchQuery: (query: string) => {
@@ -284,14 +297,22 @@ export const store = {
     await store.translateText(input, mode);
   },
 
-  translateText: async (rawText: string, mode?: QueryMode, segmentIndex = 0) => {
+  translateText: async (rawText: string, mode?: QueryMode, segmentIndex = 0, forceRefresh = false) => {
     const text = rawText.trim();
     if (!text) return;
     const generation = ++searchGeneration;
     const queryMode = mode && mode !== "dictionary" ? mode : classifyInput(text);
+    const translationOptions = {
+      offlineOnly: state.settings.translationOfflineOnly,
+      providerPreference: state.settings.translationProvider,
+    };
+    const previousSegments = text === state.translationInput && (segmentIndex > 0 || forceRefresh)
+      ? state.translatedSegments : [];
 
     updateState({
       searchQuery: text,
+      translationInput: text,
+      translatedSegments: previousSegments,
       queryMode,
       currentEntry: null,
       currentTranslation: null,
@@ -315,14 +336,16 @@ export const store = {
 
     try {
       const result = await translationService.translate(text, {
-        offlineOnly: state.settings.translationOfflineOnly,
-        providerPreference: state.settings.translationProvider,
+        ...translationOptions,
         segmentIndex,
+        forceRefresh,
       });
       if (generation !== searchGeneration) return;
 
       updateState({
         currentTranslation: result,
+        translatedSegments: [...previousSegments.filter((item) => item.segmentIndex !== result.segmentIndex), result]
+          .sort((a, b) => (a.segmentIndex || 1) - (b.segmentIndex || 1)),
         isLoading: false,
         isTranslating: false,
         translationProgressText: null,
@@ -334,8 +357,7 @@ export const store = {
       updateState({ isAnalyzingTranslation: true });
       translationService
         .analyze(result, {
-          offlineOnly: state.settings.translationOfflineOnly,
-          providerPreference: state.settings.translationProvider,
+          ...translationOptions,
         })
         .then((analysis) => {
           if (generation !== searchGeneration) return;
@@ -344,8 +366,10 @@ export const store = {
             ...analysis,
             analysisStatus: "complete",
           };
-          translationCache.write(result.sourceText, merged);
-          updateState({ currentTranslation: merged, isAnalyzingTranslation: false });
+          translationCache.write(result.sourceText, merged, `${translationOptions.offlineOnly ? 'offline' : 'online'}:${translationOptions.providerPreference || 'auto'}`);
+          updateState({ currentTranslation: merged, isAnalyzingTranslation: false,
+            translatedSegments: state.translatedSegments.map((item) => item.segmentIndex === merged.segmentIndex ? merged : item),
+          });
         })
         .catch(() => {
           if (generation !== searchGeneration) return;
@@ -355,6 +379,7 @@ export const store = {
     } catch (error) {
       if (generation !== searchGeneration) return;
       updateState({
+        currentTranslation: previousSegments.find((item) => item.segmentIndex === segmentIndex + 1) || previousSegments.at(-1) || null,
         isLoading: false,
         isTranslating: false,
         isAnalyzingTranslation: false,
@@ -371,7 +396,7 @@ export const store = {
   translateNextSegment: async () => {
     const current = state.currentTranslation;
     if (!current?.segmentCount || !current.segmentIndex || current.segmentIndex >= current.segmentCount) return;
-    await store.translateText(state.searchQuery, state.queryMode, current.segmentIndex);
+    await store.translateText(state.translationInput, state.queryMode, current.segmentIndex);
   },
 
   searchWord: async (rawWord: string, forceRefresh = false) => {
@@ -403,8 +428,8 @@ export const store = {
       (item) => (item.normalizedWord || item.word).toLowerCase() === normalized,
     );
     const instantLocal = forceRefresh ? null : localDictionaryService.lookupInstant(normalized);
-    const instantEntry = saved?.dictionary || instantLocal;
-    const instantSource: LookupSource = saved?.dictionary
+    const instantEntry = instantLocal || (!forceRefresh && saved?.dictionary.dataVersion === 2 ? saved.dictionary : null);
+    const instantSource: LookupSource = !instantLocal && instantEntry
       ? "saved"
       : instantLocal
         ? (DEMO_DICTIONARY_ENTRIES[instantLocal.normalizedWord] ? "demo" : "local")
@@ -505,6 +530,7 @@ export const store = {
   },
 
   captureSelectedAndLookup: async () => {
+    try {
     const captured = await desktopBridge.captureSelectedText();
     if (captured && captured.trim()) {
       if (state.windowMode === "bubble") await store.setWindowMode("lookup");
@@ -512,14 +538,26 @@ export const store = {
     } else if (state.windowMode === "bubble") {
       await store.setWindowMode("lookup");
     }
+    } catch (error) {
+      updateState({ error: String((error as Error)?.message || error) });
+      if (state.windowMode === 'bubble') await store.setWindowMode('lookup');
+    }
+  },
+
+  showTranslationSegment: (segmentIndex: number) => {
+    const result = state.translatedSegments.find((item) => item.segmentIndex === segmentIndex);
+    if (!result) return;
+    searchGeneration += 1;
+    updateState({ currentTranslation: result, isLoading: false, isTranslating: false, isAnalyzingTranslation: false, error: null });
   },
 
   saveCurrentPhrase: () => {
     if (!state.currentTranslation) return;
+    const complete = state.translatedSegments.length === state.currentTranslation.segmentCount;
     storageService.savePhrase(
-      state.currentTranslation.sourceText,
-      state.currentTranslation.translatedText,
-      state.currentTranslation.alternativeTranslations,
+      complete ? state.translationInput : state.currentTranslation.sourceText,
+      complete ? state.translatedSegments.map((item) => item.translatedText).join('\n\n') : state.currentTranslation.translatedText,
+      complete && state.translatedSegments.length > 1 ? [] : state.currentTranslation.alternativeTranslations,
       { tags: ["Phrase", state.queryMode === "translation_paragraph" ? "Paragraph" : "Translation"] },
     );
     refreshLearningState();
@@ -585,6 +623,18 @@ export const store = {
     updateState({ settings: merged });
   },
 
+  setStartWithWindows: async (enabled: boolean) => {
+    if (!isTauriRuntime()) throw new Error('Tính năng này chỉ có ở bản desktop.');
+    const previous = state.settings.startWithWindows;
+    await invokeNative('set_autostart_enabled', { enabled });
+    try {
+      store.updateSettings({ startWithWindows: enabled });
+    } catch (error) {
+      await invokeNative('set_autostart_enabled', { enabled: previous });
+      throw error;
+    }
+  },
+
   setQueueType: (type: QueueType) => {
     const cards = buildStudyQueue(type, state.savedWords, state.savedPhrases);
     updateState({
@@ -630,6 +680,17 @@ export const store = {
     }
   },
 };
+
+if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
+  window.addEventListener('lexiglass-capture-error', (event) => {
+    updateState({ error: (event as CustomEvent<string>).detail });
+    void store.setWindowMode('lookup');
+  });
+  window.addEventListener("lexiglass-storage-error", (event) => {
+    refreshLearningState();
+    updateState({ error: (event as CustomEvent<string>).detail });
+  });
+}
 
 export function useAppStore<T>(selector: (state: AppState) => T): T {
   return useSyncExternalStore(store.subscribe, () => selector(store.getState()));
