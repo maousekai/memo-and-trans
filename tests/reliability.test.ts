@@ -14,6 +14,7 @@ import { DICTIONARY_CORRECTIONS } from "../src/data/dictionaryCorrections";
 import { generateFlashcards } from "../src/services/fsrs/fsrsEngine";
 import { upgradeSavedEntry } from '../src/services/dictionary/entryIntegrity';
 import { speechService } from '../src/services/pronunciation/speechService';
+import { TauriDesktopBridge } from '../src/services/desktop/desktopBridge';
 
 class MemoryStorage {
   values = new Map();
@@ -184,6 +185,23 @@ describe("AI response integrity", () => {
 });
 
 describe("durable study data", () => {
+  test('failed writes retain migrated meanings and defaults for old saved words', () => {
+    const saved = new StorageService().saveWord(DICTIONARY_CORRECTIONS.form, { notes: 'keep legacy note' });
+    saved.normalizedWord = saved.dictionary.normalizedWord = 'legacyword';
+    delete saved.dictionary.dataVersion;
+    delete saved.fsrs;
+    const original = JSON.stringify([saved]);
+    memory.setItem('lexiglass_sqlite_words_v2', original);
+    const service = new StorageService();
+    memory.fail = true;
+    expect(() => service.saveWord(DICTIONARY_CORRECTIONS.bank)).toThrow();
+    const restored = service.getWordByQuery('legacyword');
+    expect(restored.dictionary.partsOfSpeech[0].meanings[0].englishDefinition).toBe('');
+    expect(restored.dictionary.partsOfSpeech[0].unpairedEnglishDefinitions.length).toBeGreaterThan(0);
+    expect(restored.fsrs).toBeDefined();
+    expect(restored.notes).toBe('keep legacy note');
+    expect(memory.getItem('lexiglass_sqlite_words_v2')).toBe(original);
+  });
   test('old saved entries lose false sense links without losing content or user notes', () => {
     const old = structuredClone(DICTIONARY_CORRECTIONS.form);
     old.normalizedWord = 'legacyword';
@@ -239,6 +257,12 @@ describe("durable study data", () => {
     expect(stats.retentionRate).toBe(0);
     expect(stats.totalReviewedCount).toBe(0);
   });
+});
+
+test('native pin failures reach the UI instead of claiming success', async () => {
+  window.addEventListener = () => {};
+  window.__TAURI_INTERNALS__ = { invoke: async () => { throw new Error('Windows denied pin'); } };
+  await expect(new TauriDesktopBridge().setAlwaysOnTop(true)).rejects.toThrow('Windows denied pin');
 });
 
 test('late speech responses cannot play over a newer request', async () => {

@@ -100,11 +100,7 @@ export class TauriDesktopBridge implements DesktopBridge {
   }
 
   async setAlwaysOnTop(alwaysOnTop: boolean): Promise<void> {
-    try {
-      await invokeNative("set_always_on_top", { alwaysOnTop });
-    } catch (error) {
-      console.warn("Always-on-top update failed:", error);
-    }
+    await invokeNative("set_always_on_top", { alwaysOnTop });
     await this.fallback.setAlwaysOnTop(alwaysOnTop);
   }
 

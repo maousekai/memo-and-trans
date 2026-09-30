@@ -268,10 +268,23 @@ export const store = {
   },
 
   togglePin: async () => {
-    const next = !state.isPinned;
-    await desktopBridge.setAlwaysOnTop(next);
-    store.updateSettings({ alwaysOnTop: next });
-    updateState({ isPinned: next });
+    await store.setPinned(!state.isPinned);
+  },
+
+  setPinned: async (next: boolean) => {
+    const previous = state.isPinned;
+    try {
+      await desktopBridge.setAlwaysOnTop(next);
+      try {
+        store.updateSettings({ alwaysOnTop: next });
+      } catch (error) {
+        await desktopBridge.setAlwaysOnTop(previous);
+        throw error;
+      }
+      updateState({ isPinned: next, error: null });
+    } catch {
+      updateState({ error: 'Không thay đổi được chế độ ghim cửa sổ. Hãy thử lại.' });
+    }
   },
 
   setSearchQuery: (query: string) => {

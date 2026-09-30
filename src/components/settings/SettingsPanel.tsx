@@ -168,7 +168,7 @@ export const SettingsPanel: React.FC = () => {
         </div>
         <div className={`${settingRow} border-b border-white/[0.06]`}>
           <div><span className="font-semibold block text-slate-100">Luôn ở trên cùng</span><span className="text-[11px] text-slate-400">Giữ LexiGlass nổi trên Chrome, PDF, VS Code…</span></div>
-          <input type="checkbox" checked={settings.alwaysOnTop} onChange={(e) => { const desired = e.target.checked; update({ alwaysOnTop: desired }); if (desired !== store.getState().isPinned) store.togglePin(); }} className="w-4 h-4 accent-slate-300 cursor-pointer" />
+          <input type="checkbox" checked={settings.alwaysOnTop} onChange={(e) => { void store.setPinned(e.target.checked); }} className="w-4 h-4 accent-slate-300 cursor-pointer" />
         </div>
         <div className={`${settingRow} border-b border-white/[0.06]`}>
           <div><span className="font-semibold block text-slate-100">Khởi động cùng Windows</span><span className="text-[11px] text-slate-400">Sẵn sàng tra/dịch sau khi đăng nhập.</span></div>

@@ -55,19 +55,19 @@ export class StorageService {
       if (stored) {
         const parsed: SavedWord[] = JSON.parse(stored);
         if (!Array.isArray(parsed)) throw new Error('Invalid saved words');
-        this.durableWords = stored;
         parsed.forEach((raw) => {
           const w = this.hydrateCommonFields({ ...raw, kind: "word" as const });
           w.dictionary = upgradeSavedEntry(w.dictionary);
           this.words.set(w.normalizedWord.toLowerCase(), w);
         });
+        // Rollback restores the hydrated view without rewriting the user's original data.
+        this.durableWords = JSON.stringify(Array.from(this.words.values()));
       }
 
       const storedPhrases = localStorage.getItem(STORAGE_KEY_PHRASES);
       if (storedPhrases) {
         const parsed: SavedPhrase[] = JSON.parse(storedPhrases);
         if (!Array.isArray(parsed)) throw new Error('Invalid saved phrases');
-        this.durablePhrases = storedPhrases;
         parsed.forEach((raw) => {
           const normalizedSource = raw.normalizedSource || this.normalizePhrase(raw.sourceText || "");
           if (!normalizedSource) return;
@@ -79,6 +79,7 @@ export class StorageService {
           });
           this.phrases.set(normalizedSource, phrase);
         });
+        this.durablePhrases = JSON.stringify(Array.from(this.phrases.values()));
       } else {
         this.migrateLegacyPhrases();
       }
