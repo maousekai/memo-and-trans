@@ -19,6 +19,7 @@ import { localDictionaryService } from "../services/dictionary/localDictionarySe
 import { classifyInput } from "../services/translation/inputClassifier";
 import { translationService } from "../services/translation/translationService";
 import { translationCache } from "../services/translation/translationCache";
+import { githubSyncService } from "../services/sync/githubSyncService";
 
 export type StudyTab = "notebook" | "flashcards" | "dashboard" | "settings";
 export type LookupSource = "cache" | "saved" | "local" | "public" | "ai" | "demo" | null;
@@ -200,6 +201,14 @@ function refreshLearningState() {
   });
 }
 
+function scheduleGitHubSync(settings: AppSettings = state.settings) {
+  githubSyncService.schedule(
+    storageService.getAllWords(),
+    storageService.getAllPhrases(),
+    settings,
+  );
+}
+
 export const store = {
   getState: () => state,
   subscribe: (listener: () => void) => {
@@ -213,6 +222,7 @@ export const store = {
     try {
       storageService.saveSettings(state.settings);
       refreshLearningState();
+      scheduleGitHubSync();
 
       const status = await aiService.checkStatus();
       updateState({ aiStatus: status });
@@ -524,6 +534,7 @@ export const store = {
     );
     refreshLearningState();
     store.setQueueType(state.queueType);
+    scheduleGitHubSync();
   },
 
   isCurrentPhraseSaved: (): boolean => {
@@ -535,6 +546,7 @@ export const store = {
     if (!state.currentEntry) return;
     storageService.saveWord(state.currentEntry, { tags, notes });
     refreshLearningState();
+    scheduleGitHubSync();
   },
 
   isCurrentWordSaved: (): boolean => {
@@ -545,44 +557,52 @@ export const store = {
   updateSavedWord: (id: string, updates: Partial<SavedWord>) => {
     storageService.updateWord(id, updates);
     refreshLearningState();
+    scheduleGitHubSync();
   },
 
   updateSavedPhrase: (id: string, updates: Partial<SavedPhrase>) => {
     storageService.updatePhrase(id, updates);
     refreshLearningState();
+    scheduleGitHubSync();
   },
 
   deleteSavedWord: (id: string) => {
     storageService.deleteWord(id);
     refreshLearningState();
     store.setQueueType(state.queueType);
+    scheduleGitHubSync();
   },
 
   deleteSavedPhrase: (id: string) => {
     storageService.deletePhrase(id);
     refreshLearningState();
     store.setQueueType(state.queueType);
+    scheduleGitHubSync();
   },
 
   toggleFavorite: (id: string) => {
     storageService.toggleFavorite(id);
     refreshLearningState();
+    scheduleGitHubSync();
   },
 
   toggleKnown: (id: string) => {
     storageService.toggleKnown(id);
     refreshLearningState();
+    scheduleGitHubSync();
   },
 
   resetProgress: (id: string) => {
     storageService.resetProgress(id);
     refreshLearningState();
+    scheduleGitHubSync();
   },
 
   updateSettings: (newSettings: Partial<AppSettings>) => {
     const merged = normalizePersistedSettings({ ...state.settings, ...newSettings });
     storageService.saveSettings(merged);
     updateState({ settings: merged });
+    scheduleGitHubSync(merged);
   },
 
   setQueueType: (type: QueueType) => {
@@ -593,6 +613,7 @@ export const store = {
       activeCardIndex: 0,
       isAnswerRevealed: false,
     });
+    scheduleGitHubSync();
   },
 
   revealAnswer: () => {
