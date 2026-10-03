@@ -41,6 +41,9 @@ export interface AppSettings {
   translationProvider: TranslationProviderPreference;
   translationOfflineOnly: boolean;
   translationAnalysisEnabled: boolean;
+  githubSyncEnabled: boolean;
+  githubSyncRepo: string;
+  githubOAuthClientId: string;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -65,4 +68,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   translationProvider: "auto",
   translationOfflineOnly: false,
   translationAnalysisEnabled: true,
+  githubSyncEnabled: false,
+  githubSyncRepo: "memo-and-trans-data",
+  githubOAuthClientId: "",
 };
