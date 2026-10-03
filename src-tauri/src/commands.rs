@@ -1,6 +1,6 @@
 use crate::security;
 use base64::{engine::general_purpose, Engine as _};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::{sync::OnceLock, time::Duration};
 use tauri::{AppHandle, WebviewWindow};
 
@@ -22,6 +22,47 @@ fn shared_http_client() -> &'static reqwest::Client {
 pub struct KeyStatus {
     pub configured: bool,
     pub storage_type: String,
+}
+
+#[derive(Serialize)]
+pub struct GitHubAuthStatus {
+    pub configured: bool,
+    pub login: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct GitHubDeviceCodeResponse {
+    device_code: String,
+    user_code: String,
+    verification_uri: String,
+    expires_in: u64,
+    interval: Option<u64>,
+}
+
+#[derive(Serialize)]
+pub struct GitHubDeviceCode {
+    pub device_code: String,
+    pub user_code: String,
+    pub verification_uri: String,
+    pub expires_in: u64,
+    pub interval: u64,
+}
+
+#[derive(Deserialize)]
+struct GitHubTokenResponse {
+    access_token: Option<String>,
+    error: Option<String>,
+    error_description: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct GitHubUserResponse {
+    login: String,
+}
+
+#[derive(Deserialize)]
+struct GitHubRepoResponse {
+    default_branch: String,
 }
 
 #[derive(Serialize)]
@@ -206,6 +247,245 @@ pub async fn save_api_key(key: String) -> Result<(), String> {
     } else {
         security::set_api_key(&key)
     }
+}
+
+fn github_headers(token: &str) -> Result<reqwest::header::HeaderMap, String> {
+    use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, AUTHORIZATION, USER_AGENT};
+    let mut headers = HeaderMap::new();
+    headers.insert(USER_AGENT, HeaderValue::from_static("LexiGlass"));
+    headers.insert(ACCEPT, HeaderValue::from_static("application/vnd.github+json"));
+    headers.insert("X-GitHub-Api-Version", HeaderValue::from_static("2022-11-28"));
+    let auth = HeaderValue::from_str(&format!("Bearer {}", token))
+        .map_err(|e| format!("Invalid GitHub token header: {}", e))?;
+    headers.insert(AUTHORIZATION, auth);
+    Ok(headers)
+}
+
+async fn github_login_for_token(token: &str) -> Result<String, String> {
+    let response = shared_http_client()
+        .get("https://api.github.com/user")
+        .headers(github_headers(token)?)
+        .send()
+        .await
+        .map_err(|e| format!("GitHub user request failed: {}", e))?;
+
+    if !response.status().is_success() {
+        return Err(format!("GitHub authentication failed with status {}", response.status()));
+    }
+
+    let user: GitHubUserResponse = response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse GitHub user response: {}", e))?;
+    Ok(user.login)
+}
+
+#[tauri::command]
+pub async fn github_auth_status() -> Result<GitHubAuthStatus, String> {
+    match security::get_github_token() {
+        Ok(token) if !token.trim().is_empty() => {
+            match github_login_for_token(&token).await {
+                Ok(login) => Ok(GitHubAuthStatus { configured: true, login: Some(login) }),
+                Err(_) => Ok(GitHubAuthStatus { configured: false, login: None }),
+            }
+        }
+        _ => Ok(GitHubAuthStatus { configured: false, login: None }),
+    }
+}
+
+#[tauri::command]
+pub async fn github_begin_device_login(client_id: String) -> Result<GitHubDeviceCode, String> {
+    let client_id = client_id.trim();
+    if client_id.is_empty() {
+        return Err("GitHub OAuth Client ID is required".to_string());
+    }
+
+    let response = shared_http_client()
+        .post("https://github.com/login/device/code")
+        .header("Accept", "application/json")
+        .form(&[
+            ("client_id", client_id),
+            ("scope", "repo read:user"),
+        ])
+        .send()
+        .await
+        .map_err(|e| format!("Failed to start GitHub device login: {}", e))?;
+
+    if !response.status().is_success() {
+        return Err(format!("GitHub device login failed with status {}", response.status()));
+    }
+
+    let payload: GitHubDeviceCodeResponse = response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse GitHub device code response: {}", e))?;
+
+    Ok(GitHubDeviceCode {
+        device_code: payload.device_code,
+        user_code: payload.user_code,
+        verification_uri: payload.verification_uri,
+        expires_in: payload.expires_in,
+        interval: payload.interval.unwrap_or(5).max(5),
+    })
+}
+
+#[tauri::command]
+pub async fn github_poll_device_login(client_id: String, device_code: String) -> Result<GitHubAuthStatus, String> {
+    let response = shared_http_client()
+        .post("https://github.com/login/oauth/access_token")
+        .header("Accept", "application/json")
+        .form(&[
+            ("client_id", client_id.trim()),
+            ("device_code", device_code.trim()),
+            ("grant_type", "urn:ietf:params:oauth:grant-type:device_code"),
+        ])
+        .send()
+        .await
+        .map_err(|e| format!("Failed to poll GitHub device login: {}", e))?;
+
+    let payload: GitHubTokenResponse = response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse GitHub token response: {}", e))?;
+
+    if let Some(token) = payload.access_token {
+        security::set_github_token(&token)?;
+        let login = github_login_for_token(&token).await?;
+        return Ok(GitHubAuthStatus { configured: true, login: Some(login) });
+    }
+
+    match payload.error.as_deref() {
+        Some("authorization_pending") => Ok(GitHubAuthStatus { configured: false, login: None }),
+        Some("slow_down") => Ok(GitHubAuthStatus { configured: false, login: None }),
+        Some(error) => Err(payload.error_description.unwrap_or_else(|| error.to_string())),
+        None => Err("GitHub did not return an access token".to_string()),
+    }
+}
+
+#[tauri::command]
+pub async fn github_disconnect() -> Result<(), String> {
+    security::delete_github_token()
+}
+
+#[tauri::command]
+pub async fn github_ensure_sync_repo(repo_name: String) -> Result<String, String> {
+    let token = security::get_github_token()
+        .map_err(|_| "GitHub is not connected".to_string())?;
+    let login = github_login_for_token(&token).await?;
+    let repo_name = repo_name.trim();
+    if repo_name.is_empty() {
+        return Err("Repository name is required".to_string());
+    }
+
+    let full_name = format!("{}/{}", login, repo_name);
+    let repo_url = format!("https://api.github.com/repos/{}", full_name);
+    let existing = shared_http_client()
+        .get(&repo_url)
+        .headers(github_headers(&token)?)
+        .send()
+        .await
+        .map_err(|e| format!("GitHub repo lookup failed: {}", e))?;
+
+    if existing.status().is_success() {
+        return Ok(full_name);
+    }
+    if existing.status().as_u16() != 404 {
+        return Err(format!("GitHub repo lookup failed with status {}", existing.status()));
+    }
+
+    let created = shared_http_client()
+        .post("https://api.github.com/user/repos")
+        .headers(github_headers(&token)?)
+        .json(&serde_json::json!({
+            "name": repo_name,
+            "private": true,
+            "description": "Private LexiGlass vocabulary sync for ChatGPT study",
+            "auto_init": true
+        }))
+        .send()
+        .await
+        .map_err(|e| format!("Failed to create GitHub sync repository: {}", e))?;
+
+    if !created.status().is_success() {
+        let status = created.status();
+        let body = created.text().await.unwrap_or_default();
+        return Err(format!("GitHub repo creation failed {}: {}", status, body));
+    }
+
+    Ok(full_name)
+}
+
+#[tauri::command]
+pub async fn github_sync_json(repo_name: String, path: String, content: String) -> Result<String, String> {
+    let token = security::get_github_token()
+        .map_err(|_| "GitHub is not connected".to_string())?;
+    let login = github_login_for_token(&token).await?;
+    let full_name = if repo_name.contains('/') { repo_name } else { format!("{}/{}", login, repo_name) };
+    let path = path.trim_matches('/');
+    if path.is_empty() || content.trim().is_empty() {
+        return Err("Sync path and content are required".to_string());
+    }
+
+    let repo_meta = shared_http_client()
+        .get(format!("https://api.github.com/repos/{}", full_name))
+        .headers(github_headers(&token)?)
+        .send()
+        .await
+        .map_err(|e| format!("GitHub repo metadata request failed: {}", e))?;
+
+    if !repo_meta.status().is_success() {
+        return Err(format!("GitHub repository is not accessible: {}", repo_meta.status()));
+    }
+    let repo: GitHubRepoResponse = repo_meta
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse GitHub repo metadata: {}", e))?;
+
+    let url = format!("https://api.github.com/repos/{}/contents/{}", full_name, path);
+    let existing = shared_http_client()
+        .get(&url)
+        .headers(github_headers(&token)?)
+        .send()
+        .await
+        .map_err(|e| format!("GitHub content lookup failed: {}", e))?;
+
+    let sha = if existing.status().is_success() {
+        let json: serde_json::Value = existing
+            .json()
+            .await
+            .map_err(|e| format!("Failed to parse existing GitHub content: {}", e))?;
+        json.get("sha").and_then(|v| v.as_str()).map(str::to_string)
+    } else if existing.status().as_u16() == 404 {
+        None
+    } else {
+        return Err(format!("GitHub content lookup failed with status {}", existing.status()));
+    };
+
+    let encoded = general_purpose::STANDARD.encode(content.as_bytes());
+    let mut body = serde_json::json!({
+        "message": "chore(sync): update LexiGlass learning data",
+        "content": encoded,
+        "branch": repo.default_branch
+    });
+    if let Some(sha) = sha {
+        body["sha"] = serde_json::Value::String(sha);
+    }
+
+    let response = shared_http_client()
+        .put(&url)
+        .headers(github_headers(&token)?)
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("GitHub sync request failed: {}", e))?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        return Err(format!("GitHub sync failed {}: {}", status, body));
+    }
+
+    Ok(format!("https://github.com/{}/blob/{}/{}", full_name, repo.default_branch, path))
 }
 
 fn build_nim_request_body(model: &str, prompt: &str, temperature: f32) -> serde_json::Value {
